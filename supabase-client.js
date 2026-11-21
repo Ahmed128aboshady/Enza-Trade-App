@@ -32,12 +32,66 @@
     return getClient();
   }
 
+  const _odooCallbacks = {};
+  window.__enzaOdooCallback = function (cbId, ok, message) {
+    const entry = _odooCallbacks[cbId];
+    if (!entry) return;
+    delete _odooCallbacks[cbId];
+    clearTimeout(entry.timer);
+    if (ok) entry.resolve({ success: true, odooSynced: true, message });
+    else entry.reject(new Error(message || 'تعذر الاتصال بـ Odoo'));
+  };
+
+  function callNativeOdoo(fnName, ...args) {
+    return new Promise((resolve, reject) => {
+      if (!window.EnzaOdoo || typeof window.EnzaOdoo[fnName] !== 'function') {
+        return reject(new Error('جسر Odoo المباشر متاح داخل تطبيق الأندرويد فقط'));
+      }
+      if (typeof window.EnzaOdoo.isConfigured === 'function' && !window.EnzaOdoo.isConfigured()) {
+        return reject(new Error('بيانات الاتصال بـ Odoo غير مضبوطة'));
+      }
+      const cbId = 'odoo_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const timer = setTimeout(() => {
+        delete _odooCallbacks[cbId];
+        reject(new Error('انتهت مهلة الاتصال بـ Odoo'));
+      }, 20000);
+      _odooCallbacks[cbId] = { resolve, reject, timer };
+      try {
+        window.EnzaOdoo[fnName](...args, cbId);
+      } catch (err) {
+        clearTimeout(timer);
+        delete _odooCallbacks[cbId];
+        reject(err);
+      }
+    });
+  }
+
   const EnzaDB = {
     getClient: getClient,
     resetClient: resetClient,
 
     isReady: function() {
       return Boolean(getClient());
+    },
+
+    odoo: {
+      isAvailable() {
+        return Boolean(window.EnzaOdoo && typeof window.EnzaOdoo.isConfigured === 'function' && window.EnzaOdoo.isConfigured());
+      },
+      async setArchive({ id, externalId, archived }) {
+        let odooSynced = false;
+        let odooMessage = '';
+        if (externalId && this.isAvailable()) {
+          const res = await callNativeOdoo('setProductArchive', String(externalId), Boolean(archived));
+          odooSynced = true;
+          odooMessage = res.message || '';
+        }
+        const sb = getClient();
+        if (sb && id) {
+          await sb.from('product_variants').update({ is_published: !archived }).eq('id', id);
+        }
+        return { success: true, odooSynced, message: odooMessage };
+      }
     },
 
     // ------------------------------------------------------------------------
@@ -188,84 +242,107 @@
           throw error;
         }
 
+        // Auto-archive on Odoo when stock hits 0, auto-unarchive when restocked > 0
+        try {
+          const { data: vRow } = await sb
+            .from('product_variants')
+            .select('id, external_id, available_qty, is_published')
+            .eq('id', variantId)
+            .single();
+          if (vRow && vRow.external_id && window.EnzaDB.odoo.isAvailable()) {
+            const newQty = Number(vRow.available_qty || 0);
+            if (newQty <= 0 && vRow.is_published !== false) {
+              await window.EnzaDB.odoo.setArchive({ id: vRow.id, externalId: vRow.external_id, archived: true });
+            } else if (newQty > 0 && vRow.is_published === false && direction === 'in') {
+              await window.EnzaDB.odoo.setArchive({ id: vRow.id, externalId: vRow.external_id, archived: false });
+            }
+          }
+        } catch (odooErr) {
+          console.warn('[Enza] Auto-archive Odoo sync skipped:', odooErr.message);
+        }
+
         return data;
       },
 
       // TWO-WAY: Update product in Supabase and trigger Odoo update
       async updateStore({ id, externalId, price, isPublished, imageUrl }) {
         const sb = getClient();
+        let odooSynced = false;
 
-        // 1. Try local bridge if reachable
-        try {
-          const res = await fetch('http://localhost:3001/api/update-product', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              variantId: id,
-              odooId: externalId,
-              listPrice: price,
-              isPublished: isPublished,
-              image1920: imageUrl
-            })
-          });
-          if (res.ok) {
-            const json = await res.json();
-            if (json.success) return json;
+        // 1. Direct native Android -> Odoo JSON-RPC (24/7, no PC needed)
+        if (externalId && window.EnzaDB.odoo.isAvailable()) {
+          try {
+            await callNativeOdoo('updateProduct', String(externalId), JSON.stringify({
+              list_price: Number(price),
+              is_published: Boolean(isPublished),
+              active: Boolean(isPublished)
+            }));
+            odooSynced = true;
+          } catch (e) {
+            console.warn('[Enza] Native Odoo update warning:', e.message);
           }
-        } catch (e) {
-          // Local bridge not running or mobile device outside localhost
         }
 
-        // 2. Direct Supabase update with sync_pending = true
+        // 2. Fallback: Try local bridge if reachable
+        if (!odooSynced) {
+          try {
+            const res = await fetch('http://localhost:3001/api/update-product', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                variantId: id,
+                odooId: externalId,
+                listPrice: price,
+                isPublished: isPublished,
+                image1920: imageUrl
+              })
+            });
+            if (res.ok) {
+              const json = await res.json();
+              if (json.success) odooSynced = true;
+            }
+          } catch (e) {}
+        }
+
+        // 3. Direct Supabase update
         if (sb) {
           const payload = {
             sale_price: Number(price),
-            is_published: Boolean(isPublished),
-            sync_pending: true
+            is_published: Boolean(isPublished)
           };
           if (imageUrl) payload.image_url = imageUrl;
 
-          let { data, error } = await sb
+          const { data, error } = await sb
             .from('product_variants')
             .update(payload)
             .eq('id', id)
             .select()
             .single();
 
-          if (error && (error.code === '42703' || (error.message && (error.message.includes('sync_pending') || error.message.includes('schema cache'))))) {
-            delete payload.sync_pending;
-            const res2 = await sb.from('product_variants').update(payload).eq('id', id).select().single();
-            data = res2.data;
-            error = res2.error;
-          }
-
           if (error) throw error;
-          return { success: true, data };
+          return { success: true, odooSynced, data };
         }
+        return { success: true, odooSynced };
       },
 
       async updateBarcode({ id, externalId, barcode }) {
         const cleanBarcode = String(barcode || '').trim();
         const sb = getClient();
 
-        // 1. Try local bridge if reachable
-        try {
-          await fetch('http://localhost:3001/api/update-product', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              variantId: id,
-              odooId: externalId,
-              barcode: cleanBarcode
-            })
-          });
-        } catch (e) {}
+        // 1. Direct native Android -> Odoo JSON-RPC
+        if (externalId && window.EnzaDB.odoo.isAvailable()) {
+          try {
+            await callNativeOdoo('updateProduct', String(externalId), JSON.stringify({ barcode: cleanBarcode }));
+          } catch (e) {
+            console.warn('[Enza] Native Odoo barcode sync warning:', e.message);
+          }
+        }
 
         // 2. Direct Supabase update
         if (sb) {
           const { data, error } = await sb
             .from('product_variants')
-            .update({ barcode: cleanBarcode, sync_pending: true })
+            .update({ barcode: cleanBarcode })
             .eq('id', id)
             .select()
             .single();

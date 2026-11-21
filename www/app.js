@@ -617,7 +617,7 @@ function renderProduct() {
       '<div class="stock-meter ' + (stock <= min ? 'low' : '') + '"><span style="width:' + Math.min(100, (stock / targetStock) * 100) + '%"></span></div>' +
       '<div class="info-row"><span>تنبيه عند الوصول إلى</span><b>' + min + ' قطع</b></div>' +
       '<div class="info-row"><span>الموقع في المخزن</span><b class="ltr">' + esc(p.location || 'A-01') + '</b></div>' +
-      '<div class="info-row"><span>الحالة على الموقع</span><b>' + (p.is_published !== false ? '<span style="color:var(--green)">منشور على المتجر</span>' : '<span style="color:var(--muted)">مخفي من المتجر</span>') + '</b></div>' +
+      '<div class="info-row"><span>الحالة على Odoo والموقع</span><b>' + (p.is_published !== false ? '<span style="color:var(--green)">نشط ومنشور على المتجر</span>' : '<span style="color:var(--red)">مؤرشف / مخفي من المتجر</span>') + '</b></div>' +
     '</section>' +
     '<div class="button-row">' +
       '<button class="primary-btn" data-action="open-disburse-from-product">' + icon('plus') + 'صرف مباشر لعميل</button>' +
@@ -625,6 +625,9 @@ function renderProduct() {
     '</div>' +
     '<div class="button-row" style="margin-top:8px">' +
       '<button class="secondary-btn" data-action="stock-modal">' + icon('box') + 'حركة مخزون (توريد/صرف)</button>' +
+      (p.is_published !== false ?
+        '<button class="secondary-btn" data-action="toggle-odoo-archive" data-archive="1" style="color:var(--red);border-color:#fcd9dc;background:#fff7f7">' + icon('trash') + 'أرشفة على Odoo</button>' :
+        '<button class="secondary-btn" data-action="toggle-odoo-archive" data-archive="0" style="color:var(--green);border-color:#c6ebd4;background:var(--green-bg)">' + icon('check') + 'إلغاء الأرشفة (تفعيل)</button>') +
     '</div>' +
     '<section class="panel">' +
       '<div class="panel-title">بيانات المنتج</div>' +
@@ -1577,7 +1580,7 @@ function renderActivity() {
   '<section class="panel">' +
     '<div class="panel-title">إعدادات النظام والاتصال</div>' +
     '<button class="settings-row" style="width:100%;text-align:right" data-action="check-updates">' +
-      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.2.0') + ' • التحقق من GitHub Releases</small></span>' +
+      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.3.0') + ' • التحقق من GitHub Releases</small></span>' +
       icon('sync') +
     '</button>' +
     '<label class="settings-row">' +
@@ -3014,6 +3017,30 @@ document.addEventListener('click', async e => {
         toast('النسخ غير متاح هنا؛ يمكنك تحديد النص ونسخه.');
       }
       break;
+
+    case 'toggle-odoo-archive': {
+      const p = pBy(state.selectedProduct);
+      if (!p) break;
+      const shouldArchive = b.dataset.archive === '1';
+      const label = shouldArchive ? 'أرشفة وإخفاء' : 'إلغاء أرشفة وتفعيل';
+      if (!confirm('هل تريد ' + label + ' «' + (p.name || '') + ' (' + (p.color_name || '') + ')» مباشرة على Odoo والموقع؟')) break;
+      try {
+        toast('جاري ' + label + ' المنتج على Odoo...');
+        const res = await window.EnzaDB.odoo.setArchive({
+          id: p.id,
+          externalId: p.external_id,
+          archived: shouldArchive
+        });
+        p.is_published = !shouldArchive;
+        render(false);
+        toast(res.odooSynced
+          ? (shouldArchive ? 'تمت أرشفة المنتج مباشرة على Odoo بنجاح' : 'تم إلغاء أرشفة المنتج وإعادته على Odoo بنجاح')
+          : 'تم تحديث الحالة في Supabase (افتح من تطبيق الأندرويد للمزامنة المباشرة مع Odoo)');
+      } catch (err) {
+        toast('فشل تحديث الأرشيف على Odoo: ' + (err.message || 'خطأ في الاتصال'));
+      }
+      break;
+    }
 
     case 'open-cash-entry-detail':
       openCashEntryDetailModal(b.dataset.kind, b.dataset.id);

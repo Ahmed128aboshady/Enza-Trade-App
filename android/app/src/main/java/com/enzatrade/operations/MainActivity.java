@@ -2,6 +2,7 @@ package com.enzatrade.operations;
 
 import android.os.Bundle;
 import android.webkit.JavascriptInterface;
+import android.webkit.WebView;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -9,7 +10,9 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         if (getBridge() != null && getBridge().getWebView() != null) {
-            getBridge().getWebView().addJavascriptInterface(new UpdaterBridge(), "EnzaUpdater");
+            WebView webView = getBridge().getWebView();
+            webView.addJavascriptInterface(new UpdaterBridge(), "EnzaUpdater");
+            webView.addJavascriptInterface(new OdooBridge(this, webView), "EnzaOdoo");
         }
         Updater.check(this, false);
     }

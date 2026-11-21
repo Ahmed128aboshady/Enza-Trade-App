@@ -1,14 +1,34 @@
 apply plugin: 'com.android.application'
 
+def odooEnv = [:]
+def odooEnvFile = file('../../.env.odoo')
+if (odooEnvFile.exists()) {
+    odooEnvFile.eachLine { line ->
+        def trimmed = line.trim()
+        if (trimmed && !trimmed.startsWith('#') && trimmed.contains('=')) {
+            def idx = trimmed.indexOf('=')
+            odooEnv[trimmed.substring(0, idx).trim()] = trimmed.substring(idx + 1).trim()
+        }
+    }
+}
+def quoteVal = { String v -> '"' + (v ?: '').replace('\\', '\\\\').replace('"', '\\"') + '"' }
+
 android {
     namespace "com.enzatrade.operations"
     compileSdk rootProject.ext.compileSdkVersion
+    buildFeatures {
+        buildConfig true
+    }
     defaultConfig {
         applicationId "com.enzatrade.operations"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 3
-        versionName "1.2.0"
+        versionCode 4
+        versionName "1.3.0"
+        buildConfigField "String", "ODOO_URL", quoteVal(odooEnv['ODOO_URL'])
+        buildConfigField "String", "ODOO_DB", quoteVal(odooEnv['ODOO_DB'])
+        buildConfigField "String", "ODOO_EMAIL", quoteVal(odooEnv['ODOO_EMAIL'])
+        buildConfigField "String", "ODOO_PASSWORD", quoteVal(odooEnv['ODOO_PASSWORD'])
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
