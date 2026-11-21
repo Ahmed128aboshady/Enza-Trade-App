@@ -7,6 +7,25 @@
 const $ = (s, root=document) => root.querySelector(s);
 const $$ = (s, root=document) => [...root.querySelectorAll(s)];
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const normalizeSearchText = value => String(value ?? '')
+  .replace(/[\u0660-\u0669]/g, d => String(d.charCodeAt(0) - 0x0660))
+  .replace(/[\u06F0-\u06F9]/g, d => String(d.charCodeAt(0) - 0x06F0))
+  .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+  .replace(/[أإآٱ]/g, 'ا')
+  .replace(/ة/g, 'ه')
+  .replace(/ى/g, 'ي')
+  .replace(/ؤ/g, 'و')
+  .replace(/ئ/g, 'ي')
+  .toLowerCase()
+  .replace(/\s+/g, ' ')
+  .trim();
+const matchesSearch = (haystack, query) => {
+  const q = normalizeSearchText(query);
+  if (!q) return true;
+  const h = normalizeSearchText(haystack);
+  const hCompact = h.replace(/[\s\-+()]/g, '');
+  return q.split(' ').every(tok => h.includes(tok) || hCompact.includes(tok.replace(/[\-+()]/g, '')));
+};
 
 const icons = {
   receipt: '<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-8M16 12h-8M10 16h-2"/>',
@@ -315,7 +334,7 @@ function renderHeader() {
   if (state.screen === 'login') {
     $('#app-header').innerHTML =
       '<div class="header-row">' +
-        '<span class="mini-logo">ENZA</span>' +
+        '<img src="assets/enza-logo.png" alt="ENZA 3D Printing" class="mini-logo-img">' +
         '<span class="mode-badge ' + (isLive() ? 'live' : 'demo') + '">' + (isLive() ? 'Supabase' : 'عرض تجريبي') + '</span>' +
       '</div>';
     return;
@@ -336,8 +355,9 @@ function renderHeader() {
       '</div>' +
       '<div class="header-actions">' +
         (state.screen === 'home' ?
+          '<img src="assets/enza-logo.png" alt="ENZA 3D Printing" class="mini-logo-img" style="margin-left:6px">' +
           '<button class="icon-btn" data-screen="activity" aria-label="الإشعارات والنشاط">' + icon('bell') + '<span class="notification-dot"></span></button>' :
-          detail ? '' : '<span class="mini-logo">ENZA</span>') +
+          detail ? '' : '<img src="assets/enza-logo.png" alt="ENZA 3D Printing" class="mini-logo-img">') +
       '</div>' +
     '</div>';
 }
@@ -502,8 +522,8 @@ function filteredOrders() {
 
     const c = o.customer || cBy(o.cid || o.customer_id) || {};
     const ref = o.display_number || ('EN-' + o.id);
-    const searchable = (ref + ' ' + (c.display_name || c.name || '') + ' ' + (c.city || '')).toLowerCase();
-    return matchFilter && searchable.includes(state.query.toLowerCase());
+    const searchable = [ref, c.display_name, c.name, c.phone_e164, c.phone, c.city].filter(Boolean).join(' ');
+    return matchFilter && matchesSearch(searchable, state.query);
   }).sort((a, b) => {
     if (a.placed_at && b.placed_at) {
       return state.sortReverse ? new Date(a.placed_at) - new Date(b.placed_at) : new Date(b.placed_at) - new Date(a.placed_at);
@@ -555,8 +575,8 @@ function productResults() {
     const stock = p.available_qty !== undefined ? p.available_qty : p.stock;
     const min = p.minimum_qty !== undefined ? p.minimum_qty : p.min;
     const matchCat = (state.productFilter === 'all' || state.productFilter === p.category || (state.productFilter === 'low' && stock <= min));
-    const searchable = (p.name + ' ' + p.brand + ' ' + (p.color_name || p.color) + ' ' + p.sku).toLowerCase();
-    return matchCat && searchable.includes(state.query.toLowerCase());
+    const searchable = [p.name, p.brand, p.color_name, p.color, p.sku].filter(Boolean).join(' ');
+    return matchCat && matchesSearch(searchable, state.query);
   });
 
   return '<div class="list-summary"><span>' + list.length + ' منتجات</span><span>المخزن الرئيسي</span></div>' +
@@ -765,11 +785,17 @@ function customerResults() {
   const list = custs.filter(c => {
     const debt = getCustomerTotalDebt(c.id);
     if (curFilter === 'debt' && debt <= 0) return false;
-    const name = c.display_name || c.name || '';
-    const city = c.city || '';
-    const area = c.area || '';
-    const phone = c.phone_e164 || c.phone || '';
-    return (name + ' ' + city + ' ' + area + ' ' + phone).toLowerCase().includes(state.query.toLowerCase());
+    const haystack = [
+      c.display_name,
+      c.name,
+      c.phone_e164,
+      c.phone,
+      c.city,
+      c.area,
+      c.address,
+      c.notes
+    ].filter(Boolean).join(' ');
+    return matchesSearch(haystack, state.query);
   });
 
   return '<div class="list-summary"><span>' + list.length + ' عملاء</span><span>' + (curFilter === 'debt' ? 'عملاء عليهم مديونية' : 'قاعدة البيانات') + '</span></div>' +
@@ -1137,7 +1163,7 @@ function buildUnifiedCashLedgerHtml() {
         const dateLabel = dt.toLocaleDateString('ar-EG', { day: 'numeric', month: 'short' });
         const timeLabel = dt.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
 
-        return '<div class="expense-card" style="border-right:4px solid ' + (isAdd ? 'var(--green)' : 'var(--red)') + '">' +
+        return '<div class="expense-card clickable-card" data-action="open-cash-entry-detail" data-kind="' + item.kind + '" data-id="' + esc(String(item.id || '')) + '" style="border-right:4px solid ' + (isAdd ? 'var(--green)' : 'var(--red)') + '">' +
           '<div class="expense-icon" style="background:' + (isAdd ? 'var(--green-bg);color:var(--green)' : 'var(--rose);color:var(--red)') + '">' +
             icon(isAdd ? 'plus' : 'receipt') +
           '</div>' +
@@ -1150,10 +1176,9 @@ function buildUnifiedCashLedgerHtml() {
             '</div>' +
             '<small>' + esc(item.categoryLabel) + ' · ' + dateLabel + ' (' + timeLabel + ')</small>' +
             (item.notes ? '<small style="color:var(--ink);margin-top:2px">' + esc(item.notes) + '</small>' : '') +
-            (item.receipt_image_url ?
-              '<button type="button" class="text-btn" data-action="view-proof-image" data-img="' + esc(item.receipt_image_url) + '" data-title="فاتورة المصروف" style="padding:0;font-size:10px;margin-top:4px;color:var(--blue)">' +
-                icon('receipt') + ' عرض الفاتورة المرفقة' +
-              '</button>' : '') +
+            '<small style="color:var(--blue);margin-top:3px;font-weight:600">' +
+              (item.receipt_image_url ? 'مرفق فاتورة • ' : '') + 'اضغط لعرض التفاصيل ←' +
+            '</small>' +
           '</div>' +
           '<div class="expense-amt">' +
             '<strong style="color:' + (isAdd ? 'var(--green)' : 'var(--red)') + ';direction:ltr">' +
@@ -1204,11 +1229,11 @@ function renderExpenses() {
     '</div>' +
   '</div>' +
   '<div class="custody-summary-grid">' +
-    '<div class="custody-stat-box highlight-green">' +
+    '<div class="custody-stat-box highlight-green clickable-box" data-action="filter-expense-cat" data-cat="inflow">' +
       '<small>إضافات العهدة اليوم (+)</small>' +
       '<strong>+' + money(todayInflow) + ' <small style="display:inline;font-size:11px">ج.م</small></strong>' +
     '</div>' +
-    '<div class="custody-stat-box highlight-red">' +
+    '<div class="custody-stat-box highlight-red clickable-box" data-action="filter-expense-cat" data-cat="outflow">' +
       '<small>صرف ومصروفات اليوم (-)</small>' +
       '<strong>-' + money(todayOutflow) + ' <small style="display:inline;font-size:11px">ج.م</small></strong>' +
     '</div>' +
@@ -1218,6 +1243,104 @@ function renderExpenses() {
     '<button class="primary-btn" data-action="open-add-expense-modal">' + icon('receipt') + ' صرف مصروف (فلوس)</button>' +
   '</div>' +
   buildUnifiedCashLedgerHtml();
+}
+
+function openCashEntryDetailModal(kind, id) {
+  const catNames = {
+    fuel: 'وقود وبنزين',
+    transit: 'مواصلات وانتقالات',
+    shipping: 'شحن وتوصيل',
+    maint: 'صيانة وإصلاحات',
+    food: 'ضيافة وإعاشة',
+    other: 'مصروفات تشغيلية أخرى'
+  };
+
+  let entry = null;
+  if (kind === 'inflow') {
+    const history = JSON.parse(localStorage.getItem('enza_custodian_movements') || '[]');
+    const m = history.find(x => String(x.id) === String(id));
+    if (!m) { toast('تعذّر العثور على تفاصيل الحركة'); return; }
+    let typeLabel = 'إضافة نقدية للعهدة';
+    let title = m.notes || 'إضافة نقدية للعهدة';
+    if (m.type === 'settle_debt') {
+      typeLabel = 'تحصيل مديونية عميل';
+      title = 'تحصيل مديونية: ' + (m.customer_name || 'عميل');
+    } else if (m.type === 'disburse_to_customer') {
+      typeLabel = 'تحصيل نقدي من صرف بضاعة';
+      title = 'تحصيل صرف بضاعة: ' + (m.customer_name || 'عميل');
+    }
+    entry = {
+      id: m.id,
+      kind: 'inflow',
+      typeLabel,
+      title,
+      amount: Number(m.cash_collected || 0),
+      source: m.source || (m.type === 'cash_inflow' ? (m.notes || 'إضافة عهدة نقدية') : typeLabel),
+      customerName: m.customer_name || '',
+      customerId: m.customer_id || '',
+      productName: m.product_name || '',
+      qty: m.qty || 0,
+      notes: m.notes || '',
+      receiptUrl: m.receipt_image_url || m.waybill_image || null,
+      createdAt: m.created_at || new Date().toISOString()
+    };
+  } else {
+    const allExp = JSON.parse(localStorage.getItem('enza_expenses') || '[]');
+    const x = allExp.find(item => String(item.id) === String(id));
+    if (!x) { toast('تعذّر العثور على تفاصيل المصروف'); return; }
+    entry = {
+      id: x.id,
+      kind: 'outflow',
+      typeLabel: 'صرف مصروف من العهدة',
+      title: x.title || 'مصروف تشغيلي',
+      amount: Number(x.amount || 0),
+      source: catNames[x.category] || x.category || 'مصروفات تشغيلية أخرى',
+      customerName: '',
+      customerId: '',
+      productName: '',
+      qty: 0,
+      notes: x.notes || '',
+      receiptUrl: x.receipt_image_url || null,
+      createdAt: x.created_at || new Date().toISOString()
+    };
+  }
+
+  const isAdd = entry.kind === 'inflow';
+  const dt = new Date(entry.createdAt);
+  const fullDate = dt.toLocaleDateString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const fullTime = dt.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+
+  openModal(isAdd ? 'تفاصيل إضافة العهدة (+)' : 'تفاصيل صرف المصروف (-)',
+    '<div style="background:' + (isAdd ? 'var(--green-bg)' : '#fff5f5') + ';border:1px solid ' + (isAdd ? '#c6ebd4' : '#fcd9dc') + ';border-radius:16px;padding:16px;text-align:center;margin-bottom:14px">' +
+      '<span class="badge" style="background:' + (isAdd ? 'var(--green)' : 'var(--red)') + ';color:#fff;font-size:11px;padding:3px 10px">' +
+        esc(entry.typeLabel) +
+      '</span>' +
+      '<div style="font-size:28px;font-weight:800;margin-top:8px;direction:ltr;color:' + (isAdd ? 'var(--green)' : 'var(--red)') + '">' +
+        (isAdd ? '+' : '-') + money(entry.amount) + ' <span style="font-size:14px">ج.م</span>' +
+      '</div>' +
+      '<div style="font-size:12px;color:var(--muted);margin-top:4px">' + fullDate + ' · ' + fullTime + '</div>' +
+    '</div>' +
+    '<div style="background:#fff;border:1px solid var(--line);border-radius:14px;padding:4px 14px;margin-bottom:14px">' +
+      '<div class="cash-detail-row"><span>البيان / العنوان</span><b>' + esc(entry.title) + '</b></div>' +
+      '<div class="cash-detail-row"><span>' + (isAdd ? 'المصدر / النوع' : 'تصنيف المصروف') + '</span><b>' + esc(entry.source) + '</b></div>' +
+      (entry.customerName ? '<div class="cash-detail-row"><span>العميل</span><b>' + esc(entry.customerName) + '</b></div>' : '') +
+      (entry.productName ? '<div class="cash-detail-row"><span>المنتج</span><b>' + esc(entry.productName) + (entry.qty ? ' (' + entry.qty + ' بكرة)' : '') + '</b></div>' : '') +
+      (entry.notes ? '<div class="cash-detail-row"><span>الملاحظات</span><b>' + esc(entry.notes) + '</b></div>' : '') +
+      '<div class="cash-detail-row"><span>التاريخ</span><b>' + fullDate + '</b></div>' +
+      '<div class="cash-detail-row"><span>الوقت</span><b class="ltr">' + fullTime + '</b></div>' +
+    '</div>' +
+    (entry.receiptUrl ?
+      '<div style="margin-bottom:14px">' +
+        '<div style="font-size:12px;font-weight:700;margin-bottom:6px">صورة الفاتورة / الإيصال المرفق</div>' +
+        '<img src="' + esc(entry.receiptUrl) + '" alt="إيصال" data-action="view-proof-image" data-img="' + esc(entry.receiptUrl) + '" data-title="صورة الفاتورة المرفقة" style="width:100%;max-height:220px;object-fit:contain;border-radius:12px;border:1px solid var(--line);background:#faf9f7;cursor:pointer">' +
+      '</div>' : '') +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+      '<button type="button" class="secondary-btn" data-action="' + (isAdd ? 'delete-cash-inflow' : 'delete-expense') + '" data-id="' + esc(String(entry.id)) + '" style="color:var(--red);border-color:#fcd9dc;background:#fff7f7">' +
+        icon('trash') + ' حذف الحركة' +
+      '</button>' +
+      '<button type="button" class="primary-btn" data-action="close-modal">إغلاق</button>' +
+    '</div>'
+  );
 }
 
 function openAddExpenseModal() {
@@ -1454,7 +1577,7 @@ function renderActivity() {
   '<section class="panel">' +
     '<div class="panel-title">إعدادات النظام والاتصال</div>' +
     '<button class="settings-row" style="width:100%;text-align:right" data-action="check-updates">' +
-      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.1.0') + ' • التحقق من GitHub Releases</small></span>' +
+      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.2.0') + ' • التحقق من GitHub Releases</small></span>' +
       icon('sync') +
     '</button>' +
     '<label class="settings-row">' +
@@ -1482,8 +1605,8 @@ function renderLogin() {
   const isConfig = cfg && cfg.isConfigured();
 
   return '<div style="padding:27px 6px 15px">' +
-    '<div class="brand-mark" style="width:64px;height:65px;font-size:52px;margin-bottom:30px">E</div>' +
-    '<div class="eyebrow" style="color:#999">ENZA TRADE / OPERATIONS</div>' +
+    '<img src="assets/enza-logo.png" alt="ENZA 3D Printing" class="login-logo-img">' +
+    '<div class="eyebrow" style="color:#999">ENZA 3D PRINTING / OPERATIONS</div>' +
     '<h2 style="font-size:31px;line-height:1.6;letter-spacing:-1px">شغلك معاك،<br><span style="color:var(--red)">في كل خطوة.</span></h2>' +
     '<p class="detail-sub" style="line-height:2;margin-top:15px">تسجيل دخول فريق العمل المصرح لهم.<br>بيانات الشركة محمية بسياسات RLS والتسجيل العام مغلق.</p>' +
     '<form id="login-form" style="margin-top:26px">' +
@@ -2659,6 +2782,7 @@ document.addEventListener('click', async e => {
       const expId = b.dataset.id;
       if (confirm('هل تريد بالتأكيد حذف هذا المصروف؟')) {
         if (window.EnzaDB?.expenses) await window.EnzaDB.expenses.delete(expId);
+        closeModal();
         render(false);
         toast('تم حذف المصروف بنجاح');
       }
@@ -2673,6 +2797,7 @@ document.addEventListener('click', async e => {
           const filtered = list.filter(x => String(x.id) !== String(movId));
           localStorage.setItem('enza_custodian_movements', JSON.stringify(filtered));
         } catch(e) {}
+        closeModal();
         render(false);
         toast('تم حذف حركة الإضافة بنجاح');
       }
@@ -2890,6 +3015,10 @@ document.addEventListener('click', async e => {
       }
       break;
 
+    case 'open-cash-entry-detail':
+      openCashEntryDetailModal(b.dataset.kind, b.dataset.id);
+      break;
+
     case 'check-updates':
       if (window.EnzaUpdater && typeof window.EnzaUpdater.checkForUpdates === 'function') {
         window.EnzaUpdater.checkForUpdates();
@@ -2970,29 +3099,42 @@ document.addEventListener('click', async e => {
 
 // Search input handling with simple debounce
 let searchDebounce = null;
+function applyMainSearch(value, immediate = false) {
+  state.query = value || '';
+  clearTimeout(searchDebounce);
+  const run = () => {
+    const res = $('#results');
+    if (res) {
+      res.innerHTML = ({orders: orderResults, inventory: productResults, customers: customerResults})[state.screen]?.() || '';
+    }
+  };
+  if (immediate) run();
+  else searchDebounce = setTimeout(run, 100);
+}
+document.addEventListener('search', e => {
+  if (e.target.id === 'search-input') {
+    applyMainSearch(e.target.value, true);
+  }
+});
 document.addEventListener('input', e => {
   if (e.target.id === 'search-input') {
-    state.query = e.target.value;
-    clearTimeout(searchDebounce);
-    searchDebounce = setTimeout(() => {
-      const res = $('#results');
-      if (res) {
-        res.innerHTML = ({orders: orderResults, inventory: productResults, customers: customerResults})[state.screen]?.() || '';
-      }
-    }, 150);
+    applyMainSearch(e.target.value, false);
   }
   if (e.target.id === 'stock-qty') {
     updateStockPreview();
   }
   if (e.target.id === 'disb-cust-search') {
-    const term = e.target.value.toLowerCase().trim();
+    const term = e.target.value || '';
     const custs = getCustomers();
     const list = $('#disb-cust-list');
     if (list) {
-      const filtered = custs.filter(c => ((c.display_name || c.name || '') + ' ' + (c.phone_e164 || '') + ' ' + (c.city || '')).toLowerCase().includes(term));
+      const filtered = custs.filter(c => {
+        const haystack = [c.display_name, c.name, c.phone_e164, c.phone, c.city, c.area, c.address].filter(Boolean).join(' ');
+        return matchesSearch(haystack, term);
+      });
       list.innerHTML = filtered.slice(0, 15).map(c =>
         '<button type="button" class="cust-select-item ' + (String(state.disburseSelectedCustomer) === String(c.id) ? 'selected' : '') + '" data-action="select-disburse-customer" data-id="' + c.id + '">' +
-          '<div><b>' + esc(c.display_name || c.name) + '</b><small>' + esc(c.phone_e164 || '') + ' · ' + esc(c.city || '') + '</small></div>' +
+          '<div><b>' + esc(c.display_name || c.name) + '</b><small>' + esc(c.phone_e164 || c.phone || '') + ' · ' + esc(c.city || '') + '</small></div>' +
           (String(state.disburseSelectedCustomer) === String(c.id) ? icon('check') : icon('left')) +
         '</button>'
       ).join('');
