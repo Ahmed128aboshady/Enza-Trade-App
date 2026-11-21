@@ -32,6 +32,20 @@
     return getClient();
   }
 
+  const VARIANT_OVERRIDES_KEY = 'enza_variant_overrides_v1';
+  function getVariantOverrides() {
+    try { return JSON.parse(localStorage.getItem(VARIANT_OVERRIDES_KEY) || '{}') || {}; }
+    catch { return {}; }
+  }
+  function saveVariantOverride(id, patch) {
+    if (!id) return;
+    try {
+      const map = getVariantOverrides();
+      map[String(id)] = Object.assign({}, map[String(id)] || {}, patch);
+      localStorage.setItem(VARIANT_OVERRIDES_KEY, JSON.stringify(map));
+    } catch {}
+  }
+
   const _odooCallbacks = {};
   window.__enzaOdooCallback = function (cbId, ok, message) {
     const entry = _odooCallbacks[cbId];
@@ -176,7 +190,11 @@
         const { data, error } = await q;
         if (error) throw error;
 
-        let results = data || [];
+        const overrides = getVariantOverrides();
+        let results = (data || []).map(p => {
+          const ov = overrides[String(p.id)];
+          return ov ? Object.assign({}, p, ov) : p;
+        });
 
         if (lowStock || category === 'low') {
           results = results.filter(p => p.available_qty <= p.minimum_qty);
@@ -304,51 +322,74 @@
           } catch (e) {}
         }
 
-        // 3. Direct Supabase update
+        // 3. Direct Supabase update (tolerant to RLS when unauthenticated) + local override fallback
+        let sbUpdated = false;
+        let data = null;
         if (sb) {
-          const payload = {
-            sale_price: Number(price),
-            is_published: Boolean(isPublished)
-          };
-          if (imageUrl) payload.image_url = imageUrl;
+          try {
+            const payload = {
+              sale_price: Number(price),
+              is_published: Boolean(isPublished)
+            };
+            if (imageUrl) payload.image_url = imageUrl;
 
-          const { data, error } = await sb
-            .from('product_variants')
-            .update(payload)
-            .eq('id', id)
-            .select()
-            .single();
+            const res = await sb
+              .from('product_variants')
+              .update(payload)
+              .eq('id', id)
+              .select();
 
-          if (error) throw error;
-          return { success: true, odooSynced, data };
+            if (!res.error && Array.isArray(res.data) && res.data.length > 0) {
+              sbUpdated = true;
+              data = res.data[0];
+            }
+          } catch (e) {
+            console.warn('[Enza] Supabase product update fallback:', e.message);
+          }
         }
-        return { success: true, odooSynced };
+        const ovPatch = { sale_price: Number(price), is_published: Boolean(isPublished) };
+        if (imageUrl) ovPatch.image_url = imageUrl;
+        saveVariantOverride(id, ovPatch);
+        return { success: true, odooSynced, sbUpdated, data };
       },
 
       async updateBarcode({ id, externalId, barcode }) {
         const cleanBarcode = String(barcode || '').trim();
         const sb = getClient();
+        let odooSynced = false;
+        let odooError = null;
 
         // 1. Direct native Android -> Odoo JSON-RPC
         if (externalId && window.EnzaDB.odoo.isAvailable()) {
           try {
             await callNativeOdoo('updateProduct', String(externalId), JSON.stringify({ barcode: cleanBarcode }));
+            odooSynced = true;
           } catch (e) {
-            console.warn('[Enza] Native Odoo barcode sync warning:', e.message);
+            odooError = e.message || 'Odoo sync error';
+            console.warn('[Enza] Native Odoo barcode sync warning:', odooError);
           }
         }
 
-        // 2. Direct Supabase update
+        // 2. Direct Supabase update (tolerant to RLS when unauthenticated) + local override fallback
+        let sbUpdated = false;
+        let data = null;
         if (sb) {
-          const { data, error } = await sb
-            .from('product_variants')
-            .update({ barcode: cleanBarcode })
-            .eq('id', id)
-            .select()
-            .single();
-          if (error) throw error;
-          return { success: true, data };
+          try {
+            const res = await sb
+              .from('product_variants')
+              .update({ barcode: cleanBarcode })
+              .eq('id', id)
+              .select();
+            if (!res.error && Array.isArray(res.data) && res.data.length > 0) {
+              sbUpdated = true;
+              data = res.data[0];
+            }
+          } catch (e) {
+            console.warn('[Enza] Supabase barcode update fallback:', e.message);
+          }
         }
+        saveVariantOverride(id, { barcode: cleanBarcode });
+        return { success: true, odooSynced, sbUpdated, odooError, data };
       }
     },
 

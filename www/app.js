@@ -940,6 +940,29 @@ function playBeepSound() {
   } catch (e) {}
 }
 
+function getBarcodeScannerFormats() {
+  const F = window.Html5QrcodeSupportedFormats;
+  if (!F) return undefined;
+  return [
+    F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E,
+    F.CODE_128, F.CODE_39, F.CODE_93, F.ITF, F.CODABAR,
+    F.QR_CODE
+  ].filter(v => v !== undefined);
+}
+
+async function stopEditBarcodeScanner() {
+  if (state.editBarcodeScanner) {
+    try { await state.editBarcodeScanner.stop(); } catch (e) {}
+    try { state.editBarcodeScanner.clear(); } catch (e) {}
+    state.editBarcodeScanner = null;
+  }
+  const box = document.getElementById('edit-barcode-scanner-box');
+  if (box) {
+    box.style.display = 'none';
+    box.innerHTML = '';
+  }
+}
+
 async function startCameraScanner() {
   const container = document.getElementById('qr-camera-viewport');
   if (!container || !window.Html5Qrcode) return;
@@ -947,18 +970,30 @@ async function startCameraScanner() {
   if (state.scannerInstance && state.scannerRunning) return;
 
   try {
-    if (!state.scannerInstance) {
-      state.scannerInstance = new Html5Qrcode('qr-camera-viewport');
+    if (state.scannerInstance) {
+      try { await state.scannerInstance.stop(); } catch (e) {}
+      try { state.scannerInstance.clear(); } catch (e) {}
+      state.scannerInstance = null;
     }
+
+    const formats = getBarcodeScannerFormats();
+    state.scannerInstance = new Html5Qrcode('qr-camera-viewport', {
+      formatsToSupport: formats,
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+      verbose: false
+    });
 
     const ph = document.getElementById('qr-placeholder');
     if (ph) ph.style.display = 'none';
+    const errEl = document.getElementById('scan-camera-error');
+    if (errEl) errEl.textContent = '';
 
     await state.scannerInstance.start(
       { facingMode: state.scannerFacing },
       {
-        fps: 12,
-        qrbox: { width: 230, height: 230 }
+        fps: 15,
+        qrbox: { width: 260, height: 150 },
+        aspectRatio: 1.5
       },
       (decodedText) => {
         onBarcodeScanned(decodedText);
@@ -974,10 +1009,11 @@ async function startCameraScanner() {
   } catch (err) {
     console.warn('Camera error:', err);
     state.scannerRunning = false;
+    state.scannerInstance = null;
     const ph = document.getElementById('qr-placeholder');
     if (ph) ph.style.display = 'flex';
     const errEl = document.getElementById('scan-camera-error');
-    if (errEl) errEl.textContent = 'الكاميرا غير مفعلة: ' + (err.message || 'تحقق من إذن الكاميرا');
+    if (errEl) errEl.textContent = 'الكاميرا غير مفعلة: ' + (err.message || 'يرجى السماح بإذن الكاميرا للتطبيق');
     const t = document.getElementById('camera-toggle-text');
     if (t) t.textContent = 'تشغيل الكاميرا';
     const b = document.getElementById('camera-toggle-btn');
@@ -1580,7 +1616,7 @@ function renderActivity() {
   '<section class="panel">' +
     '<div class="panel-title">إعدادات النظام والاتصال</div>' +
     '<button class="settings-row" style="width:100%;text-align:right" data-action="check-updates">' +
-      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.3.2') + ' • التحقق من GitHub Releases</small></span>' +
+      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.3.3') + ' • التحقق من GitHub Releases</small></span>' +
       icon('sync') +
     '</button>' +
     '<button class="settings-row" style="width:100%;text-align:right;color:var(--red)" data-action="reset-all-orders">' +
@@ -2290,6 +2326,8 @@ function editProductModal() {
           icon('scan') + ' مسح' +
         '</button>' +
       '</div>' +
+      '<div id="edit-barcode-scanner-box" style="display:none;margin-top:8px;border-radius:12px;overflow:hidden;background:#111;min-height:200px"></div>' +
+      '<div id="edit-barcode-scan-error" class="inline-error" style="margin-top:4px"></div>' +
       '<label class="field-label" for="edit-price">سعر البيع على المتجر (ج.م)</label>' +
       '<input id="edit-price" class="field ltr" type="number" min="0" step="10" value="' + price + '" required>' +
       '<label class="settings-row" style="margin-top:14px;background:#fff;padding:12px;border-radius:12px;border:1px solid var(--line)">' +
@@ -2899,26 +2937,48 @@ document.addEventListener('click', async e => {
       break;
 
     case 'scan-into-barcode': {
-      openModal('مسح باركود Spool للكاميرا',
-        '<div class="scanner-screen" style="padding:16px">' +
-          '<div id="mini-barcode-viewport" class="camera-viewport-box" style="min-height:220px"></div>' +
-          '<p style="color:#bbb;margin-top:10px;font-size:12px">وجّه الكاميرا نحو باركود البكرة</p>' +
-          '<button class="secondary-btn" style="margin-top:12px" data-action="close-modal">إلغاء</button>' +
-        '</div>'
-      );
-      setTimeout(() => {
-        if (window.Html5Qrcode) {
-          const miniScanner = new Html5Qrcode('mini-barcode-viewport');
-          miniScanner.start({ facingMode: 'environment' }, { fps: 12, qrbox: 200 }, (decodedText) => {
+      const box = document.getElementById('edit-barcode-scanner-box');
+      const errBox = document.getElementById('edit-barcode-scan-error');
+      if (errBox) errBox.textContent = '';
+      if (!box) break;
+
+      if (state.editBarcodeScanner) {
+        await stopEditBarcodeScanner();
+        break;
+      }
+
+      if (!window.Html5Qrcode) {
+        if (errBox) errBox.textContent = 'مكتبة مسح الكاميرا غير محمّلة.';
+        break;
+      }
+
+      box.style.display = 'block';
+      box.innerHTML = '<div id="mini-barcode-viewport" style="width:100%;min-height:200px"></div>';
+      try {
+        const formats = getBarcodeScannerFormats();
+        const miniScanner = new Html5Qrcode('mini-barcode-viewport', {
+          formatsToSupport: formats,
+          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+          verbose: false
+        });
+        state.editBarcodeScanner = miniScanner;
+        await miniScanner.start(
+          { facingMode: 'environment' },
+          { fps: 15, qrbox: { width: 240, height: 120 }, aspectRatio: 1.5 },
+          async (decodedText) => {
             playBeepSound();
-            miniScanner.stop();
-            closeModal();
+            if (navigator.vibrate) { try { navigator.vibrate(80); } catch (e) {} }
             const inp = $('#edit-barcode');
-            if (inp) inp.value = decodedText;
-            toast('تم التقاط الباركود: ' + decodedText);
-          }, () => {});
-        }
-      }, 300);
+            if (inp) inp.value = decodedText.trim();
+            await stopEditBarcodeScanner();
+            toast('تم التقاط الباركود: ' + decodedText.trim() + ' — اضغط حفظ للتأكيد');
+          },
+          () => {}
+        );
+      } catch (err) {
+        await stopEditBarcodeScanner();
+        if (errBox) errBox.textContent = 'تعذر فتح الكاميرا: ' + (err.message || 'تأكد من تفعيل إذن الكاميرا للتطبيق');
+      }
       break;
     }
 
@@ -3888,9 +3948,10 @@ document.addEventListener('submit', async e => {
       submitBtn.disabled = true;
       submitBtn.textContent = 'جارٍ تحديث المتجر وSupabase...';
 
+      await stopEditBarcodeScanner();
       const newBarcode = $('#edit-barcode')?.value.trim();
 
-      await window.EnzaDB.products.updateStore({
+      const storeRes = await window.EnzaDB.products.updateStore({
         id: p.id,
         externalId: p.external_id,
         price: newPrice,
@@ -3898,8 +3959,9 @@ document.addEventListener('submit', async e => {
         imageUrl: state.editImageBase64
       });
 
+      let barcodeRes = null;
       if (newBarcode !== undefined) {
-        await window.EnzaDB.products.updateBarcode({
+        barcodeRes = await window.EnzaDB.products.updateBarcode({
           id: p.id,
           externalId: p.external_id,
           barcode: newBarcode
@@ -3913,7 +3975,10 @@ document.addEventListener('submit', async e => {
 
       closeModal();
       render(false);
-      toast('تم تحديث سعر وحالة المنتج في المتجر وSupabase بنجاح!');
+      const syncedOdoo = Boolean((storeRes && storeRes.odooSynced) || (barcodeRes && barcodeRes.odooSynced));
+      toast(syncedOdoo
+        ? 'تم حفظ الباركود والسعر ومزامنتهما مباشرة مع Odoo بنجاح!'
+        : 'تم حفظ الباركود والسعر في التطبيق بنجاح!');
     } catch (err) {
       console.error('Edit error:', err);
       errBox.textContent = err.message || 'فشل التحديث';
