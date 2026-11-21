@@ -1580,7 +1580,7 @@ function renderActivity() {
   '<section class="panel">' +
     '<div class="panel-title">إعدادات النظام والاتصال</div>' +
     '<button class="settings-row" style="width:100%;text-align:right" data-action="check-updates">' +
-      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.3.0') + ' • التحقق من GitHub Releases</small></span>' +
+      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.3.1') + ' • التحقق من GitHub Releases</small></span>' +
       icon('sync') +
     '</button>' +
     '<label class="settings-row">' +
@@ -2366,7 +2366,7 @@ async function fetchLiveData() {
 // EVENT LISTENERS
 // ----------------------------------------------------------------------------
 document.addEventListener('click', async e => {
-  const b = e.target.closest('button');
+  const b = e.target.closest('button, [data-action]');
   if (!b) {
     const screenTarget = e.target.closest('[data-screen]');
     if (screenTarget) {
