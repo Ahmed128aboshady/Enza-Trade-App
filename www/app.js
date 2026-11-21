@@ -1580,8 +1580,12 @@ function renderActivity() {
   '<section class="panel">' +
     '<div class="panel-title">إعدادات النظام والاتصال</div>' +
     '<button class="settings-row" style="width:100%;text-align:right" data-action="check-updates">' +
-      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.3.1') + ' • التحقق من GitHub Releases</small></span>' +
+      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.3.2') + ' • التحقق من GitHub Releases</small></span>' +
       icon('sync') +
+    '</button>' +
+    '<button class="settings-row" style="width:100%;text-align:right;color:var(--red)" data-action="reset-all-orders">' +
+      '<span>تصفير كل الطلبات (البدء على نظافة)<small>مسح جميع الطلبات التجريبية من التطبيق والبدء من الصفر</small></span>' +
+      icon('trash') +
     '</button>' +
     '<label class="settings-row">' +
       '<span>إشعارات الطلبات<small>تفضيل الإشعارات التشغيلية</small></span>' +
@@ -3045,6 +3049,37 @@ document.addEventListener('click', async e => {
     case 'open-cash-entry-detail':
       openCashEntryDetailModal(b.dataset.kind, b.dataset.id);
       break;
+
+    case 'reset-all-orders': {
+      if (!confirm('هل تريد بالتأكيد تصفير ومسح جميع الطلبات للبدء على نظافة؟ (لن يتم حذف المنتجات أو المخزون)')) break;
+      const alsoClearCash = confirm('هل تريد أيضاً تصفير حركات العهدة والمصروفات التجريبية؟\nاضغط OK لتصفير العهدة أيضاً، أو Cancel للإبقاء عليها.');
+      try {
+        // 1. Clear local order & shipping caches on this device
+        localStorage.removeItem('enza_local_orders');
+        localStorage.removeItem('enza_order_ops_v2');
+        localStorage.removeItem('enza_urgent_ledger');
+        if (alsoClearCash) {
+          localStorage.removeItem('enza_custodian_movements');
+          localStorage.removeItem('enza_expenses');
+        }
+        // 2. Also delete any orders in Supabase if permitted
+        try {
+          const sb = window.EnzaDB?.getClient?.();
+          if (sb) {
+            await sb.from('order_lines').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+            await sb.from('orders').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+          }
+        } catch (sbErr) {}
+        state.live.orders = [];
+        if (typeof demoOrders !== 'undefined' && Array.isArray(demoOrders)) demoOrders.length = 0;
+        if (isLive()) await fetchLiveData();
+        render(false);
+        toast(alsoClearCash ? 'تم تصفير جميع الطلبات والعهدة بنجاح — جاهز للبدء على نظافة' : 'تم تصفير جميع الطلبات بنجاح — جاهز للبدء على نظافة');
+      } catch (err) {
+        toast('حدث خطأ أثناء التصفير: ' + (err.message || 'حاول مرة أخرى'));
+      }
+      break;
+    }
 
     case 'check-updates':
       if (window.EnzaUpdater && typeof window.EnzaUpdater.checkForUpdates === 'function') {
