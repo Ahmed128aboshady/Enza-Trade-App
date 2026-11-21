@@ -1,0 +1,57 @@
+{
+  "name": "Enza Mobile",
+  "version": "1.0.0",
+  "platform": "Android",
+  "direction": "rtl",
+  "colors": {
+    "brand": "#DF2635",
+    "brandPressed": "#BD1D2B",
+    "ink": "#25262B",
+    "background": "#F7F6F3",
+    "surface": "#FFFFFF",
+    "border": "#EAE8E4",
+    "muted": "#777980",
+    "success": "#286546",
+    "successSurface": "#EAF3ED",
+    "warning": "#8C5C14",
+    "warningSurface": "#FFF4DE",
+    "info": "#3D638C",
+    "infoSurface": "#EDF3FA"
+  },
+  "typography": {
+    "arabic": "Noto Sans Arabic",
+    "latin": "DM Sans",
+    "fallback": "Tahoma, sans-serif",
+    "screenTitle": 23,
+    "sectionTitle": 15,
+    "body": 13,
+    "metadata": 11,
+    "statistic": 37
+  },
+  "spacing": [
+    4,
+    8,
+    12,
+    16,
+    20,
+    24,
+    32
+  ],
+  "radius": {
+    "input": 13,
+    "card": 17,
+    "hero": 23,
+    "sheet": 27
+  },
+  "touch": {
+    "minimumTarget": 44,
+    "bottomNavigation": 76
+  },
+  "navigation": [
+    "home",
+    "orders",
+    "scanner",
+    "inventory",
+    "customers"
+  ]
+}

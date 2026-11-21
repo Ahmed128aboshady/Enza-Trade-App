@@ -1,0 +1,22 @@
+{
+  "appId": "com.enzatrade.operations",
+  "appName": "ENZA Mobile",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "android": {
+    "backgroundColor": "#F7F6F3",
+    "allowMixedContent": false,
+    "captureInput": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1500,
+      "backgroundColor": "#F7F6F3",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "backgroundColor": "#F7F6F3",
+      "style": "DARK"
+    }
+  }
+}

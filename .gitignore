@@ -1,0 +1,14 @@
+node_modules/
+.env*
+!.env.odoo.example
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+*.apk
+*.log
+emulator-screen.png
+previews/
+transcriptions.txt
+inspect-odoo.js
+link-odoo-ids.js
