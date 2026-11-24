@@ -207,10 +207,42 @@ function pieceCount(o) {
   return 0;
 }
 
+const formatArabicToday = () => {
+  const now = new Date();
+  const d = now.toLocaleDateString('ar-EG', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const t = now.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+  return d + ' · ' + t;
+};
+const formatArabicDate = iso => {
+  const dt = iso ? new Date(iso) : new Date();
+  return isNaN(dt.getTime()) ? new Date().toLocaleDateString('ar-EG', { day: 'numeric', month: 'long', year: 'numeric' }) : dt.toLocaleDateString('ar-EG', { day: 'numeric', month: 'long', year: 'numeric' });
+};
+const formatArabicTime = iso => {
+  const dt = iso ? new Date(iso) : new Date();
+  return isNaN(dt.getTime()) ? new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : dt.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+};
+const formatArabicDateTime = iso => formatArabicDate(iso) + ' · ' + formatArabicTime(iso);
+
+const getProductPhotoUrl = (p, large = false) => {
+  if (!p) return '';
+  if (p.image_url && String(p.image_url).trim()) return String(p.image_url).trim();
+  if (p.external_id && /^\d+$/.test(String(p.external_id).trim())) {
+    return 'https://enza-trade-co.odoo.com/web/image/product.product/' + String(p.external_id).trim() + '/' + (large ? 'image_512' : 'image_256');
+  }
+  return '';
+};
+
 const art = (p, large=false) => {
   if (!p) return '<div class="product-art"></div>';
   const hex = p.hex || p.color_hex || '#dddcd4';
   const type = p.type || 'spool';
+  const photoUrl = getProductPhotoUrl(p, large);
+  if (photoUrl) {
+    return '<div class="product-art real-photo ' + (type === 'bottle' ? 'bottle ' : '') + (large ? 'large' : '') + '" style="--swatch:' + hex + '">' +
+      '<img class="product-photo-img" src="' + esc(photoUrl) + '" alt="' + esc(p.name || 'منتج') + '" loading="lazy" onerror="this.style.display=\'none\';if(this.nextElementSibling)this.nextElementSibling.style.display=\'block\';this.parentElement.classList.remove(\'real-photo\')">' +
+      '<div class="spool" style="display:none"></div>' +
+    '</div>';
+  }
   return '<div class="product-art ' + (type === 'bottle' ? 'bottle ' : '') + (large ? 'large' : '') + '" style="--swatch:' + hex + '" aria-label="رسم توضيحي للمنتج"><div class="spool"></div></div>';
 };
 
@@ -317,7 +349,7 @@ const syncLine = () => {
 // ----------------------------------------------------------------------------
 function renderHeader() {
   const titles = {
-    home: ['نظرة على يومك', 'الاثنين، ٢ نوفمبر'],
+    home: ['نظرة على يومك', formatArabicToday()],
     orders: ['الطلبات', 'كل أوردر، خطوة أقرب لعميلك'],
     inventory: ['المخزن', 'كل منتج له مكان'],
     scanner: ['مسح الكود', 'وصول أسرع. أخطاء أقل.'],
@@ -542,7 +574,7 @@ function orderResults() {
   }
 
   return '<div class="list-summary">' +
-    '<span>' + list.length + ' طلبات <strong>• ' + (isLive() ? 'قاعدة البيانات' : 'اليوم، ٢ نوفمبر') + '</strong></span>' +
+    '<span>' + list.length + ' طلبات <strong>• ' + (isLive() ? formatArabicDate() : formatArabicToday()) + '</strong></span>' +
     '<button data-action="sort-orders">' + icon('sliders') + (state.sortReverse ? 'الأقدم أولًا' : 'الأحدث أولًا') + '</button>' +
   '</div>' +
   list.map(o => orderCard(o)).join('') +
@@ -690,7 +722,7 @@ function renderOrder() {
   return '<div class="order-detail-head">' +
     badge(status) +
     '<h2 class="order-ref">' + esc(ref) + '</h2>' +
-    '<p class="meta">' + (o.placed_at ? new Date(o.placed_at).toLocaleDateString('ar-EG') : '٢ نوفمبر ٢٠٢٦') + ' · طلب من المتجر</p>' +
+    '<p class="meta">' + formatArabicDateTime(o.placed_at) + ' · طلب مسجل</p>' +
   '</div>' +
   '<div class="progress-steps">' +
     statuses.map((s, i) =>
@@ -748,6 +780,11 @@ function renderOrder() {
         icon('truck') + ' تصوير / إرفاق صورة بوليصة الشحن (Urgent)' +
       '</button>') +
   '</section>' +
+  '<div class="button-row" style="margin-bottom:12px">' +
+    '<button type="button" class="primary-btn" style="background:#25262b" data-action="open-order-invoice" data-id="' + esc(String(o.id)) + '">' +
+      icon('receipt') + ' عرض ومشاركة الفاتورة الرسمية (ENZA)' +
+    '</button>' +
+  '</div>' +
   (current < 3 ?
     '<div class="sticky-action"><button class="primary-btn" data-action="advance-order">' +
       icon(current === 0 ? 'box' : current === 1 ? 'truck' : 'check') +
@@ -1284,6 +1321,358 @@ function renderExpenses() {
   buildUnifiedCashLedgerHtml();
 }
 
+function buildOrderInvoiceData(orderOrId) {
+  const o = typeof orderOrId === 'object' && orderOrId ? orderOrId : oBy(orderOrId || state.selectedOrder);
+  if (!o) return null;
+  const c = o.customer || cBy(o.cid || o.customer_id) || {};
+  const ops = getOrderOps(o);
+  const ref = o.display_number || ('#EN-' + o.id);
+  const shipping = Number(o.shipping_amount ?? o.shipping ?? 0);
+  const grandTotal = total(o);
+  const subtotal = Math.max(0, grandTotal - shipping);
+  const rows = [];
+
+  if (Array.isArray(o.lines) && o.lines.length > 0) {
+    o.lines.forEach(l => {
+      const p = l.variant || pBy(l.variant_id) || {};
+      const qty = Number(l.qty || 1);
+      const unitPrice = Number(l.unit_price ?? p.sale_price ?? 0);
+      rows.push({
+        name: p.name || l.product_name || 'منتج ENZA',
+        color: p.color_name || p.color || '',
+        brand: p.brand || '',
+        qty,
+        unitPrice,
+        lineTotal: qty * unitPrice
+      });
+    });
+  } else if (Array.isArray(o.items) && o.items.length > 0) {
+    o.items.forEach(([pid, qty, customPrice]) => {
+      const p = pBy(pid) || {};
+      const q = Number(qty || 1);
+      const unitPrice = Number(customPrice ?? p.sale_price ?? p.price ?? 0);
+      rows.push({
+        name: p.name || 'منتج ENZA',
+        color: p.color_name || p.color || '',
+        brand: p.brand || '',
+        qty: q,
+        unitPrice,
+        lineTotal: q * unitPrice
+      });
+    });
+  }
+
+  return {
+    id: o.id,
+    ref,
+    placedAt: o.placed_at || new Date().toISOString(),
+    dateText: formatArabicDate(o.placed_at),
+    timeText: formatArabicTime(o.placed_at),
+    customerName: c.display_name || c.name || 'عميل ENZA',
+    customerPhone: c.phone_e164 || c.phone || '—',
+    customerCity: c.city || '',
+    customerAddress: c.address || '—',
+    paymentMethod: o.payment_method || 'نقدي / عند الاستلام',
+    rows,
+    subtotal,
+    shipping,
+    grandTotal,
+    paid: Number(ops.paid || 0),
+    remaining: Number(ops.remaining || 0)
+  };
+}
+
+function openBrandedInvoiceModal(orderOrId) {
+  const inv = buildOrderInvoiceData(orderOrId);
+  if (!inv) { toast('تعذر العثور على بيانات الفاتورة'); return; }
+  state.activeInvoiceData = inv;
+
+  const payStatusHtml = inv.remaining <= 0
+    ? '<span class="badge" style="background:var(--green-bg);color:var(--green);font-weight:700">خالص بالكامل</span>'
+    : (inv.paid > 0
+      ? '<span class="badge" style="background:#fff6e5;color:#b26a00;font-weight:700">مدفوع جزئياً</span>'
+      : '<span class="badge" style="background:#fff0f1;color:var(--red);font-weight:700">آجل بالكامل</span>');
+
+  openModal('فاتورة ENZA الرسمية',
+    '<div class="enza-invoice-paper">' +
+      '<div class="inv-head">' +
+        '<div class="inv-head-brand">' +
+          '<img src="assets/enza-logo.png" alt="ENZA 3D Printing" class="inv-head-logo">' +
+          '<div>' +
+            '<h3>ENZA 3D PRINTING</h3>' +
+            '<small>فاتورة مبيعات • SALES INVOICE</small>' +
+          '</div>' +
+        '</div>' +
+        '<div class="inv-head-meta">' +
+          '<strong>' + esc(inv.ref) + '</strong>' +
+          '<span>' + esc(inv.dateText) + '</span>' +
+          '<span class="ltr">' + esc(inv.timeText) + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="inv-red-bar"></div>' +
+      '<div class="inv-body">' +
+        '<div class="inv-info-grid">' +
+          '<div><small>اسم العميل</small><b>' + esc(inv.customerName) + '</b></div>' +
+          '<div><small>رقم التليفون</small><b class="ltr">' + esc(inv.customerPhone) + '</b></div>' +
+          '<div><small>المدينة / العنوان</small><b>' + esc([inv.customerCity, inv.customerAddress].filter(v => v && v !== '—').join(' — ') || '—') + '</b></div>' +
+          '<div><small>طريقة الدفع والحالة</small><div>' + payStatusHtml + '</div></div>' +
+        '</div>' +
+        '<table class="inv-table">' +
+          '<thead><tr><th>الصنف واللون</th><th style="text-align:center">الكمية</th><th style="text-align:center">السعر</th><th>الإجمالي</th></tr></thead>' +
+          '<tbody>' +
+            (inv.rows.length > 0 ? inv.rows.map(r =>
+              '<tr>' +
+                '<td><b>' + esc(r.name) + '</b>' + (r.color ? '<div style="font-size:10px;color:var(--muted)">' + esc(r.color) + '</div>' : '') + '</td>' +
+                '<td style="text-align:center">' + r.qty + '</td>' +
+                '<td style="text-align:center" class="ltr">' + money(r.unitPrice) + '</td>' +
+                '<td class="ltr">' + money(r.lineTotal) + ' ج.م</td>' +
+              '</tr>'
+            ).join('') : '<tr><td colspan="4" style="text-align:center;color:var(--muted)">لا توجد بنود مسجلة</td></tr>') +
+          '</tbody>' +
+        '</table>' +
+        '<div class="inv-totals">' +
+          '<div class="inv-total-row"><span>قيمة المنتجات</span><b class="ltr">' + money(inv.subtotal) + ' ج.م</b></div>' +
+          '<div class="inv-total-row"><span>مصاريف الشحن والتوصيل</span><b class="ltr">' + money(inv.shipping) + ' ج.م</b></div>' +
+          '<div class="inv-total-row grand"><span>الإجمالي النهائي</span><span class="ltr">' + money(inv.grandTotal) + ' ج.م</span></div>' +
+          '<div class="inv-total-row" style="margin-top:6px"><span>المدفوع</span><b style="color:var(--green)" class="ltr">' + money(inv.paid) + ' ج.م</b></div>' +
+          '<div class="inv-total-row"><span>المتبقي على العميل</span><b style="color:' + (inv.remaining > 0 ? 'var(--red)' : 'var(--green)') + '" class="ltr">' + money(inv.remaining) + ' ج.م</b></div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="inv-footer">شكراً لتعاملكم مع <b>ENZA 3D Printing</b> — خامات طباعة ثلاثية الأبعاد بأعلى جودة</div>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
+      '<button type="button" class="primary-btn" data-action="share-invoice-image">' + icon('receipt') + ' مشاركة الفاتورة كصورة</button>' +
+      '<button type="button" class="secondary-btn" data-action="copy-invoice-text">' + icon('chat') + ' نسخ نص للواتساب</button>' +
+    '</div>' +
+    '<button type="button" class="secondary-btn" data-action="close-modal">إغلاق</button>'
+  );
+}
+
+function loadImageAsync(src) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+async function renderInvoiceToPngDataUrl(inv) {
+  const W = 1080;
+  const rowH = 74;
+  const rowsCount = Math.max(1, inv.rows.length);
+  const H = 760 + rowsCount * rowH + 220;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  // Background
+  ctx.fillStyle = '#f7f6f3';
+  ctx.fillRect(0, 0, W, H);
+
+  // Paper card
+  const pad = 42;
+  const cardW = W - pad * 2;
+  const cardH = H - pad * 2;
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(pad, pad, cardW, cardH, 28) : ctx.rect(pad, pad, cardW, cardH);
+  ctx.fill();
+  ctx.strokeStyle = '#e6e3dc';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Dark header band
+  const headH = 175;
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(pad, pad, cardW, headH, [28, 28, 0, 0]) : ctx.rect(pad, pad, cardW, headH);
+  ctx.clip();
+  ctx.fillStyle = '#25262b';
+  ctx.fillRect(pad, pad, cardW, headH);
+  ctx.restore();
+
+  // Red brand accent bar
+  ctx.fillStyle = '#df2635';
+  ctx.fillRect(pad, pad + headH, cardW, 10);
+
+  // Logo box on right (RTL)
+  const logoImg = await loadImageAsync('assets/enza-logo.png');
+  const logoBoxSize = 114;
+  const logoX = pad + cardW - 36 - logoBoxSize;
+  const logoY = pad + 30;
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(logoX, logoY, logoBoxSize, logoBoxSize, 20) : ctx.rect(logoX, logoY, logoBoxSize, logoBoxSize);
+  ctx.fill();
+  if (logoImg) {
+    const scale = Math.min((logoBoxSize - 16) / logoImg.width, (logoBoxSize - 16) / logoImg.height);
+    const dw = logoImg.width * scale;
+    const dh = logoImg.height * scale;
+    ctx.drawImage(logoImg, logoX + (logoBoxSize - dw) / 2, logoY + (logoBoxSize - dh) / 2, dw, dh);
+  }
+
+  // Brand title next to logo (RTL right-aligned)
+  ctx.direction = 'rtl';
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 36px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText('ENZA 3D PRINTING', logoX - 24, pad + 82);
+  ctx.fillStyle = '#d4d5db';
+  ctx.font = '24px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText('فاتورة مبيعات رسمية  •  SALES INVOICE', logoX - 24, pad + 124);
+
+  // Invoice Ref & Date on left
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 32px "Segoe UI", Arial, sans-serif';
+  ctx.fillText(inv.ref, pad + 36, pad + 78);
+  ctx.fillStyle = '#d4d5db';
+  ctx.font = '22px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText(inv.dateText, pad + 36, pad + 114);
+  ctx.fillText(inv.timeText, pad + 36, pad + 144);
+
+  // Customer Info Box
+  let y = pad + headH + 40;
+  const innerX = pad + 36;
+  const innerW = cardW - 72;
+  ctx.fillStyle = '#f7f6f3';
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(innerX, y, innerW, 138, 18) : ctx.rect(innerX, y, innerW, 138);
+  ctx.fill();
+  ctx.strokeStyle = '#ece9e2';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#777777';
+  ctx.font = '20px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText('العميل:', innerX + innerW - 24, y + 40);
+  ctx.fillStyle = '#25262b';
+  ctx.font = 'bold 26px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText(inv.customerName, innerX + innerW - 105, y + 42);
+
+  ctx.fillStyle = '#777777';
+  ctx.font = '20px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText('العنوان:', innerX + innerW - 24, y + 86);
+  ctx.fillStyle = '#25262b';
+  ctx.font = '22px "Cairo", "Segoe UI", Arial, sans-serif';
+  const addrLine = [inv.customerCity, inv.customerAddress].filter(v => v && v !== '—').join(' — ') || '—';
+  ctx.fillText(addrLine.slice(0, 44), innerX + innerW - 105, y + 86);
+
+  ctx.fillStyle = '#777777';
+  ctx.font = '20px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText('التليفون:', innerX + 280, y + 40);
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#25262b';
+  ctx.font = 'bold 24px "Segoe UI", Arial, sans-serif';
+  ctx.fillText(inv.customerPhone, innerX + 24, y + 42);
+
+  ctx.textAlign = 'left';
+  const statusBadgeText = inv.remaining <= 0 ? 'خالص بالكامل' : (inv.paid > 0 ? 'مدفوع جزئياً' : 'آجل بالكامل');
+  ctx.fillStyle = inv.remaining <= 0 ? '#1b7f46' : '#df2635';
+  ctx.font = 'bold 23px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText(statusBadgeText, innerX + 24, y + 90);
+
+  // Table Header
+  y += 168;
+  ctx.fillStyle = '#25262b';
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(innerX, y, innerW, 58, 12) : ctx.rect(innerX, y, innerW, 58);
+  ctx.fill();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 22px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('الصنف واللون', innerX + innerW - 20, y + 38);
+  ctx.textAlign = 'center';
+  ctx.fillText('الكمية', innerX + 340, y + 38);
+  ctx.fillText('السعر', innerX + 220, y + 38);
+  ctx.textAlign = 'left';
+  ctx.fillText('الإجمالي', innerX + 20, y + 38);
+
+  y += 58;
+  const rows = inv.rows.length ? inv.rows : [{ name: 'لا توجد بنود', color: '', qty: 0, unitPrice: 0, lineTotal: 0 }];
+  rows.forEach((r, idx) => {
+    if (idx % 2 === 1) {
+      ctx.fillStyle = '#faf9f6';
+      ctx.fillRect(innerX, y, innerW, rowH);
+    }
+    ctx.strokeStyle = '#f0ede7';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(innerX, y + rowH);
+    ctx.lineTo(innerX + innerW, y + rowH);
+    ctx.stroke();
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#25262b';
+    ctx.font = 'bold 23px "Cairo", "Segoe UI", Arial, sans-serif';
+    ctx.fillText(String(r.name).slice(0, 34), innerX + innerW - 20, y + 34);
+    if (r.color) {
+      ctx.fillStyle = '#7a7a7a';
+      ctx.font = '19px "Cairo", "Segoe UI", Arial, sans-serif';
+      ctx.fillText(String(r.color).slice(0, 32), innerX + innerW - 20, y + 60);
+    }
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#25262b';
+    ctx.font = 'bold 23px "Segoe UI", Arial, sans-serif';
+    ctx.fillText(String(r.qty), innerX + 340, y + 44);
+    ctx.fillText(money(r.unitPrice), innerX + 220, y + 44);
+
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 23px "Segoe UI", Arial, sans-serif';
+    ctx.fillText(money(r.lineTotal) + ' ج.م', innerX + 20, y + 44);
+
+    y += rowH;
+  });
+
+  // Totals Card
+  y += 28;
+  ctx.fillStyle = '#f7f6f3';
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(innerX, y, innerW, 252, 18) : ctx.rect(innerX, y, innerW, 252);
+  ctx.fill();
+  ctx.strokeStyle = '#ece9e2';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  const drawTotalRow = (label, value, offsetY, color = '#25262b', big = false) => {
+    ctx.textAlign = 'right';
+    ctx.fillStyle = color;
+    ctx.font = (big ? 'bold 29px' : '23px') + ' "Cairo", "Segoe UI", Arial, sans-serif';
+    ctx.fillText(label, innerX + innerW - 24, y + offsetY);
+    ctx.textAlign = 'left';
+    ctx.font = (big ? 'bold 31px' : 'bold 24px') + ' "Segoe UI", Arial, sans-serif';
+    ctx.fillText(value, innerX + 24, y + offsetY);
+  };
+
+  drawTotalRow('قيمة المنتجات', money(inv.subtotal) + ' ج.م', 44);
+  drawTotalRow('مصاريف الشحن والتوصيل', money(inv.shipping) + ' ج.م', 86);
+
+  ctx.strokeStyle = '#df2635';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(innerX + 24, y + 108);
+  ctx.lineTo(innerX + innerW - 24, y + 108);
+  ctx.stroke();
+
+  drawTotalRow('الإجمالي النهائي', money(inv.grandTotal) + ' ج.م', 150, '#df2635', true);
+  drawTotalRow('المبلغ المدفوع', money(inv.paid) + ' ج.م', 196, '#1b7f46', false);
+  drawTotalRow('المتبقي على العميل', money(inv.remaining) + ' ج.م', 234, inv.remaining > 0 ? '#df2635' : '#1b7f46', false);
+
+  // Footer
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#777777';
+  ctx.font = '21px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText('شكراً لتعاملكم مع ENZA 3D Printing  •  خامات الطباعة ثلاثية الأبعاد', W / 2, pad + cardH - 36);
+
+  return canvas.toDataURL('image/png');
+}
+
 function openCashEntryDetailModal(kind, id) {
   const catNames = {
     fuel: 'وقود وبنزين',
@@ -1616,7 +2005,7 @@ function renderActivity() {
   '<section class="panel">' +
     '<div class="panel-title">إعدادات النظام والاتصال</div>' +
     '<button class="settings-row" style="width:100%;text-align:right" data-action="check-updates">' +
-      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.3.3') + ' • التحقق من GitHub Releases</small></span>' +
+      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.4.0') + ' • التحقق من GitHub Releases</small></span>' +
       icon('sync') +
     '</button>' +
     '<button class="settings-row" style="width:100%;text-align:right;color:var(--red)" data-action="reset-all-orders">' +
@@ -3110,6 +3499,58 @@ document.addEventListener('click', async e => {
       openCashEntryDetailModal(b.dataset.kind, b.dataset.id);
       break;
 
+    case 'open-order-invoice':
+      openBrandedInvoiceModal(b.dataset.id || state.selectedOrder);
+      break;
+
+    case 'share-invoice-image': {
+      const inv = state.activeInvoiceData || buildOrderInvoiceData(state.selectedOrder);
+      if (!inv) { toast('لا توجد بيانات فاتورة للمشاركة'); break; }
+      try {
+        toast('جاري تجهيز صورة الفاتورة...');
+        const dataUrl = await renderInvoiceToPngDataUrl(inv);
+        const safeRef = String(inv.ref || 'invoice').replace(/[^a-zA-Z0-9_-]/g, '');
+        if (window.EnzaShare && typeof window.EnzaShare.shareImage === 'function') {
+          window.EnzaShare.shareImage(dataUrl, 'ENZA-' + safeRef + '.png', 'فاتورة ENZA 3D Printing ' + inv.ref);
+        } else {
+          const a = document.createElement('a');
+          a.href = dataUrl;
+          a.download = 'ENZA-' + safeRef + '.png';
+          a.click();
+          toast('تم تحميل صورة الفاتورة بنجاح');
+        }
+      } catch (err) {
+        toast('تعذر إنشاء صورة الفاتورة: ' + (err.message || ''));
+      }
+      break;
+    }
+
+    case 'copy-invoice-text': {
+      const inv = state.activeInvoiceData || buildOrderInvoiceData(state.selectedOrder);
+      if (!inv) break;
+      const linesTxt = inv.rows.map(r => '• ' + r.name + (r.color ? ' (' + r.color + ')' : '') + ' × ' + r.qty + ' = ' + money(r.lineTotal) + ' ج.م').join('\n');
+      const txt =
+        'فاتورة ENZA 3D Printing\n' +
+        'رقم الفاتورة: ' + inv.ref + '\n' +
+        'التاريخ: ' + inv.dateText + ' - ' + inv.timeText + '\n' +
+        'العميل: ' + inv.customerName + ' (' + inv.customerPhone + ')\n' +
+        '----------------\n' +
+        linesTxt + '\n' +
+        '----------------\n' +
+        'قيمة المنتجات: ' + money(inv.subtotal) + ' ج.م\n' +
+        'الشحن: ' + money(inv.shipping) + ' ج.م\n' +
+        'الإجمالي النهائي: ' + money(inv.grandTotal) + ' ج.م\n' +
+        'المدفوع: ' + money(inv.paid) + ' ج.م\n' +
+        'المتبقي: ' + money(inv.remaining) + ' ج.م';
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(txt);
+        toast('تم نسخ نص الفاتورة للواتساب');
+      } else {
+        toast('النسخ غير مدعوم هنا');
+      }
+      break;
+    }
+
     case 'reset-all-orders': {
       if (!confirm('هل تريد بالتأكيد تصفير ومسح جميع الطلبات للبدء على نظافة؟ (لن يتم حذف المنتجات أو المخزون)')) break;
       const alsoClearCash = confirm('هل تريد أيضاً تصفير حركات العهدة والمصروفات التجريبية؟\nاضغط OK لتصفير العهدة أيضاً، أو Cancel للإبقاء عليها.');
@@ -3159,7 +3600,7 @@ document.addEventListener('click', async e => {
         demoEvents.unshift({
           title: 'تمت معاينة تحديث البيانات',
           text: 'محاكاة فقط • لم يتم الاتصال بقاعدة البيانات',
-          time: '09:41',
+          time: formatArabicTime(),
           icon: 'sync'
         });
         render(false);
@@ -3563,6 +4004,9 @@ document.addEventListener('submit', async e => {
               '<div class="calc-row"><span>إجمالي القيمة:</span><b>' + money(grandTotal) + ' ج.م</b></div>' +
               '<div class="calc-row"><span>المبلغ المحصل:</span><b style="color:var(--green)">' + money(paidAmount) + ' ج.م</b></div>' +
               '<div class="calc-row"><span>المديونية المتبقية:</span><b style="color:' + (remainingAmount > 0 ? 'var(--red)' : 'var(--muted)') + '">' + money(remainingAmount) + ' ج.م</b></div>' +
+            '</div>' +
+            '<div class="button-row" style="margin-bottom:8px">' +
+              '<button class="primary-btn" style="background:#25262b" data-action="open-order-invoice" data-id="' + esc(String((createdOrder && createdOrder.id) || '')) + '">' + icon('receipt') + ' عرض ومشاركة الفاتورة</button>' +
             '</div>' +
             '<div class="button-row">' +
               '<button class="primary-btn" data-action="close-modal">تم</button>' +
@@ -4058,7 +4502,7 @@ document.addEventListener('submit', async e => {
       demoEvents.unshift({
         title: (state.movement === 'set' ? 'تعديل جرد إلى ' : (state.movement === 'in' ? 'إضافة ' : 'صرف ')) + (state.movement === 'set' ? q : changeQty) + ' قطعة • ' + p.name,
         text: 'الرصيد الجديد ' + after + ' • تعديل داخل المعاينة',
-        time: '09:41',
+        time: formatArabicTime(),
         icon: 'inventory'
       });
       closeModal();
