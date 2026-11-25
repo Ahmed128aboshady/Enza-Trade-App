@@ -468,7 +468,7 @@ function renderHome() {
   const allExp = (window.EnzaDB ? JSON.parse(localStorage.getItem('enza_expenses') || '[]') : []);
   const history = (window.EnzaDB ? JSON.parse(localStorage.getItem('enza_custodian_movements') || '[]') : []);
   const totalInflowCash = history
-    .filter(m => m.type === 'cash_inflow' || m.type === 'disburse_to_customer' || m.type === 'settle_debt')
+    .filter(m => m.type === 'cash_inflow')
     .reduce((s, m) => s + Number(m.cash_collected || 0), 0);
   const totalExpCash = allExp.reduce((s, x) => s + Number(x.amount || 0), 0);
   const currentCustodyCash = totalInflowCash - totalExpCash;
@@ -1183,21 +1183,16 @@ function buildUnifiedCashLedgerHtml() {
   const unified = [];
 
   history.forEach(m => {
-    if (m.type === 'cash_inflow' || m.type === 'settle_debt' || (m.type === 'disburse_to_customer' && Number(m.cash_collected) > 0)) {
+    if (m.type === 'cash_inflow') {
       const amt = Number(m.cash_collected || 0);
       if (amt > 0) {
-        let title = 'إضافة نقدية للعهدة';
-        if (m.type === 'cash_inflow') title = m.notes || 'إضافة نقدية للعهدة';
-        else if (m.type === 'settle_debt') title = 'تحصيل مديونية عميل: ' + (m.customer_name || 'عميل');
-        else if (m.type === 'disburse_to_customer') title = 'تحصيل صرف بضاعة: ' + (m.customer_name || 'عميل');
-
         unified.push({
           id: m.id,
           kind: 'inflow',
-          title: title,
+          title: m.notes || 'إضافة نقدية للعهدة',
           categoryLabel: 'إضافة للعهدة (+)',
           amount: amt,
-          notes: m.type === 'settle_debt' ? (m.notes || '') : '',
+          notes: '',
           created_at: m.created_at || new Date().toISOString()
         });
       }
@@ -1294,13 +1289,13 @@ function renderExpenses() {
   const todayStr = new Date().toISOString().slice(0, 10);
 
   const totalInflow = history
-    .filter(m => m.type === 'cash_inflow' || m.type === 'settle_debt' || m.type === 'disburse_to_customer')
+    .filter(m => m.type === 'cash_inflow')
     .reduce((s, m) => s + Number(m.cash_collected || 0), 0);
   const totalOutflow = allExp.reduce((s, x) => s + Number(x.amount || 0), 0);
   const netBalance = totalInflow - totalOutflow;
 
   const todayInflow = history
-    .filter(m => (m.type === 'cash_inflow' || m.type === 'settle_debt' || m.type === 'disburse_to_customer') && (m.created_at || '').startsWith(todayStr))
+    .filter(m => m.type === 'cash_inflow' && (m.created_at || '').startsWith(todayStr))
     .reduce((s, m) => s + Number(m.cash_collected || 0), 0);
   const todayOutflow = allExp
     .filter(x => (x.created_at || '').startsWith(todayStr))
@@ -2227,7 +2222,7 @@ function renderCustody() {
     .reduce((s, m) => s + (m.qty || 0), 0);
 
   const totalInflowCash = history
-    .filter(m => m.type === 'cash_inflow' || m.type === 'disburse_to_customer' || m.type === 'settle_debt')
+    .filter(m => m.type === 'cash_inflow')
     .reduce((s, m) => s + Number(m.cash_collected || 0), 0);
   const totalExpCash = allExp.reduce((s, x) => s + Number(x.amount || 0), 0);
   const netCustodyCash = totalInflowCash - totalExpCash;
@@ -2330,7 +2325,7 @@ function renderActivity() {
   '<section class="panel">' +
     '<div class="panel-title">إعدادات النظام والاتصال</div>' +
     '<button class="settings-row" style="width:100%;text-align:right" data-action="check-updates">' +
-      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.6.1') + ' • التحقق من GitHub Releases</small></span>' +
+      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.6.2') + ' • التحقق من GitHub Releases</small></span>' +
       icon('sync') +
     '</button>' +
     '<button class="settings-row" style="width:100%;text-align:right;color:var(--red)" data-action="reset-all-orders">' +
