@@ -1486,6 +1486,12 @@ function openBrandedInvoiceModal(orderOrId) {
           '<div class="inv-total-row" style="margin-top:6px"><span>المبلغ المدفوع</span><b style="color:var(--green)" class="ltr">' + money(inv.paid) + ' ج.م</b></div>' +
           '<div class="inv-total-row"><span>المتبقي على العميل</span><b style="color:' + (inv.remaining > 0 ? 'var(--red)' : 'var(--green)') + '" class="ltr">' + money(inv.remaining) + ' ج.م</b></div>' +
         '</div>' +
+        '<div class="inv-qr-strip">' +
+          '<div class="inv-qr-card"><img src="assets/qr-website.png" alt="الموقع"><span class="inv-qr-pill web">الموقع الإلكتروني</span></div>' +
+          '<div class="inv-qr-card"><img src="assets/qr-facebook.png" alt="فيسبوك"><span class="inv-qr-pill fb">صفحة فيسبوك</span></div>' +
+          '<div class="inv-qr-card"><img src="assets/qr-whatsapp.png" alt="واتساب"><span class="inv-qr-pill wa">واتساب مباشر</span></div>' +
+        '</div>' +
+        '<div class="inv-contact-bar">للطلب والاستفسار: <span class="ltr">01208640240</span>  •  <span class="ltr">enza-trade-co.odoo.com</span></div>' +
       '</div>' +
       '<div class="inv-footer">شكراً لتعاملكم مع <b>ENZA 3D Printing</b> • خامات الطباعة ثلاثية الأبعاد بأعلى جودة</div>' +
     '</div>' +
@@ -1574,15 +1580,18 @@ async function renderInvoiceToPngDataUrl(inv) {
   const W = 1080;
   const rowH = 104;
   const rows = inv.rows.length ? inv.rows : [{ name: 'لا توجد بنود', color: '', colorHex: '#7c858e', brand: '', type: 'spool', photoUrl: '', qty: 0, unitPrice: 0, lineTotal: 0 }];
-  const H = 860 + rows.length * rowH + 220;
+  const H = 860 + rows.length * rowH + 490;
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext('2d');
 
-  // Preload logo + product photos in parallel
-  const [logoImg, ...rowImgs] = await Promise.all([
+  // Preload logo + 3 QR codes + product photos in parallel
+  const [logoImg, qrWebImg, qrFbImg, qrWaImg, ...rowImgs] = await Promise.all([
     loadImageAsync('assets/enza-logo.png'),
+    loadImageAsync('assets/qr-website.png'),
+    loadImageAsync('assets/qr-facebook.png'),
+    loadImageAsync('assets/qr-whatsapp.png'),
     ...rows.map(r => loadSafeCanvasPhoto(r.photoUrl))
   ]);
 
@@ -1902,6 +1911,70 @@ async function renderInvoiceToPngDataUrl(inv) {
   drawTotalRow('المبلغ المدفوع', money(inv.paid) + ' ج.م', 206, '#157a40', false);
   drawTotalRow('المتبقي على العميل', money(inv.remaining) + ' ج.م', 246, inv.remaining > 0 ? '#df2635' : '#157a40', false);
 
+  // 3 QR Codes Strip (Website, Facebook, WhatsApp)
+  y += totH + 24;
+  const qrGap = 20;
+  const qrCardW = Math.floor((innerW - qrGap * 2) / 3);
+  const qrCardH = 212;
+  const qrCards = [
+    { img: qrWebImg, label: 'الموقع الإلكتروني', sub: 'enza-trade-co.odoo.com', color: '#df2635' },
+    { img: qrFbImg,  label: 'صفحة فيسبوك',      sub: 'fb.com/enzatrade',       color: '#1877f2' },
+    { img: qrWaImg,  label: 'واتساب مباشر',      sub: '01208640240',            color: '#157a40' }
+  ];
+  qrCards.forEach((qc, i) => {
+    // RTL order: Website on right, Facebook middle, WhatsApp left
+    const cx = innerX + (2 - i) * (qrCardW + qrGap);
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(cx, y, qrCardW, qrCardH, 18) : ctx.rect(cx, y, qrCardW, qrCardH);
+    ctx.fill();
+    ctx.strokeStyle = '#e7e4dc';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    const qrSz = 122;
+    const qx = cx + (qrCardW - qrSz) / 2;
+    const qy = y + 14;
+    if (qc.img) {
+      ctx.save();
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(qc.img, qx, qy, qrSz, qrSz);
+      ctx.restore();
+    }
+
+    // Color-coded pill label
+    const pW = qrCardW - 36;
+    const pH = 34;
+    const px = cx + 18;
+    const py = y + 144;
+    ctx.fillStyle = qc.color;
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(px, py, pW, pH, 9) : ctx.rect(px, py, pW, pH);
+    ctx.fill();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 19px "Cairo", "Segoe UI", Arial, sans-serif';
+    ctx.fillText(qc.label, cx + qrCardW / 2, py + 24);
+
+    ctx.fillStyle = '#6b6d75';
+    ctx.font = 'bold 15px "Segoe UI", Arial, sans-serif';
+    ctx.fillText(qc.sub, cx + qrCardW / 2, y + 201);
+  });
+
+  // Contact Phone Strip
+  y += qrCardH + 18;
+  ctx.fillStyle = 'rgba(247, 246, 243, 0.96)';
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(innerX, y, innerW, 54, 14) : ctx.rect(innerX, y, innerW, 54);
+  ctx.fill();
+  ctx.strokeStyle = '#e9e6de';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#25262b';
+  ctx.font = 'bold 22px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText('للطلب والاستفسار:  01208640240  •  enza-trade-co.odoo.com  •  fb.com/enzatrade', W / 2, y + 35);
+
   // Dark Branded Footer Bar
   const footH = 74;
   const footY = pad + cardH - footH;
@@ -1919,7 +1992,7 @@ async function renderInvoiceToPngDataUrl(inv) {
   ctx.fillText('شكراً لتعاملكم مع ENZA 3D Printing', W / 2, footY + 34);
   ctx.fillStyle = '#b9bcc6';
   ctx.font = '18px "Segoe UI", Arial, sans-serif';
-  ctx.fillText('enza-trade-co.odoo.com  •  خامات الطباعة ثلاثية الأبعاد بأعلى جودة', W / 2, footY + 60);
+  ctx.fillText('01208640240  •  enza-trade-co.odoo.com  •  خامات الطباعة ثلاثية الأبعاد بأعلى جودة', W / 2, footY + 60);
 
   return canvas.toDataURL('image/png');
 }
@@ -2257,7 +2330,7 @@ function renderActivity() {
   '<section class="panel">' +
     '<div class="panel-title">إعدادات النظام والاتصال</div>' +
     '<button class="settings-row" style="width:100%;text-align:right" data-action="check-updates">' +
-      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.5.4') + ' • التحقق من GitHub Releases</small></span>' +
+      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.6.0') + ' • التحقق من GitHub Releases</small></span>' +
       icon('sync') +
     '</button>' +
     '<button class="settings-row" style="width:100%;text-align:right;color:var(--red)" data-action="reset-all-orders">' +

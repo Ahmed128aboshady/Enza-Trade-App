@@ -23,8 +23,8 @@ android {
         applicationId "com.enzatrade.operations"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 13
-        versionName "1.5.4"
+        versionCode 14
+        versionName "1.6.0"
         buildConfigField "String", "ODOO_URL", quoteVal(odooEnv['ODOO_URL'])
         buildConfigField "String", "ODOO_DB", quoteVal(odooEnv['ODOO_DB'])
         buildConfigField "String", "ODOO_EMAIL", quoteVal(odooEnv['ODOO_EMAIL'])
