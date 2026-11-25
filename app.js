@@ -307,23 +307,34 @@ function orderCard(o, compact=false) {
     dots = o.items.map(([id]) => '<span style="--swatch:' + (pBy(id)?.hex || '#999') + '"></span>').join('');
   }
 
-  return '<button class="order-card" data-order="' + o.id + '">' +
-    '<div class="order-top"><span class="order-ref">' + esc(ref) + '</span>' + badge(status) + '</div>' +
-    '<div class="order-middle">' +
-      '<div><div class="customer-name">' + esc(custName) + '</div><div class="meta">' + esc(custLoc) + '</div></div>' +
-      currency(total(o)) +
-    '</div>' +
+  return '<div class="order-card" style="cursor:default">' +
+    '<button type="button" data-order="' + o.id + '" style="display:block;width:100%;text-align:right;background:none;border:0;padding:0;cursor:pointer">' +
+      '<div class="order-top"><span class="order-ref">' + esc(ref) + '</span>' + badge(status) + '</div>' +
+      '<div class="order-middle">' +
+        '<div><div class="customer-name">' + esc(custName) + '</div><div class="meta">' + esc(custLoc) + '</div></div>' +
+        currency(total(o)) +
+      '</div>' +
+      (!compact ?
+        '<div class="order-footer">' +
+          '<div class="product-dots">' + dots + '<small>' + pieceLabel(pieceCount(o)) + '</small></div>' +
+          '<span class="ltr">' + esc(time) + '</span>' +
+        '</div>' : '') +
+      (getOrderOps(o).remaining > 0 ?
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;padding:4px 8px;background:#fff5f5;border-radius:8px;font-size:11px;color:var(--red);border:1px solid #fed7d7">' +
+          '<span>دائن / متبقي: <b>' + money(getOrderOps(o).remaining) + ' ج.م</b></span>' +
+          '<span style="color:var(--brand);font-weight:600">سداد الدائن ←</span>' +
+        '</div>' : '') +
+    '</button>' +
     (!compact ?
-      '<div class="order-footer">' +
-        '<div class="product-dots">' + dots + '<small>' + pieceLabel(pieceCount(o)) + '</small></div>' +
-        '<span class="ltr">' + esc(time) + '</span>' +
+      '<div style="display:flex;justify-content:flex-end;gap:8px;border-top:1px solid #f1efeb;margin-top:10px;padding-top:8px">' +
+        '<button type="button" class="secondary-btn" data-action="open-order-invoice" data-id="' + esc(String(o.id)) + '" style="width:auto;padding:5px 12px;font-size:11px;min-height:32px;border-radius:8px">' +
+          icon('receipt') + ' الفاتورة' +
+        '</button>' +
+        '<button type="button" class="secondary-btn" data-action="delete-order" data-id="' + esc(String(o.id)) + '" style="width:auto;padding:5px 12px;font-size:11px;min-height:32px;border-radius:8px;color:var(--red);border-color:#fcd9dc;background:#fff7f7">' +
+          icon('trash') + ' حذف الطلب' +
+        '</button>' +
       '</div>' : '') +
-    (getOrderOps(o).remaining > 0 ?
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;padding:4px 8px;background:#fff5f5;border-radius:8px;font-size:11px;color:var(--red);border:1px solid #fed7d7">' +
-        '<span>دائن / متبقي: <b>' + money(getOrderOps(o).remaining) + ' ج.م</b></span>' +
-        '<span style="color:var(--brand);font-weight:600">سداد الدائن ←</span>' +
-      '</div>' : '') +
-  '</button>';
+  '</div>';
 }
 
 const search = placeholder =>
@@ -583,7 +594,7 @@ function orderResults() {
 
 function renderOrders() {
   return (state.loadError ? renderConnError() : '') +
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin:6px 0 12px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 12px;padding-top:4px">' +
       '<h2 style="font-size:14px;font-weight:700">قائمة الطلبات</h2>' +
       '<button class="primary-btn" style="width:auto;padding:7px 14px;font-size:11px;border-radius:10px" data-action="open-disburse-wizard">' +
         icon('plus') + ' صرف طلب جديد' +
@@ -782,7 +793,10 @@ function renderOrder() {
   '</section>' +
   '<div class="button-row" style="margin-bottom:12px">' +
     '<button type="button" class="primary-btn" style="background:#25262b" data-action="open-order-invoice" data-id="' + esc(String(o.id)) + '">' +
-      icon('receipt') + ' عرض ومشاركة الفاتورة الرسمية (ENZA)' +
+      icon('receipt') + ' الفاتورة الرسمية (ENZA)' +
+    '</button>' +
+    '<button type="button" class="secondary-btn" data-action="delete-order" data-id="' + esc(String(o.id)) + '" style="color:var(--red);border-color:#fcd9dc;background:#fff7f7">' +
+      icon('trash') + ' حذف الطلب' +
     '</button>' +
   '</div>' +
   (current < 3 ?
@@ -2242,7 +2256,7 @@ function renderActivity() {
   '<section class="panel">' +
     '<div class="panel-title">إعدادات النظام والاتصال</div>' +
     '<button class="settings-row" style="width:100%;text-align:right" data-action="check-updates">' +
-      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.5.2') + ' • التحقق من GitHub Releases</small></span>' +
+      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.5.3') + ' • التحقق من GitHub Releases</small></span>' +
       icon('sync') +
     '</button>' +
     '<button class="settings-row" style="width:100%;text-align:right;color:var(--red)" data-action="reset-all-orders">' +
@@ -3735,6 +3749,57 @@ document.addEventListener('click', async e => {
     case 'open-cash-entry-detail':
       openCashEntryDetailModal(b.dataset.kind, b.dataset.id);
       break;
+
+    case 'delete-order': {
+      const targetId = String(b.dataset.id || state.selectedOrder || '');
+      if (!targetId) break;
+      const ord = oBy(targetId);
+      const refLabel = ord ? (ord.display_number || ('#EN-' + ord.id)) : targetId;
+      if (!confirm('هل تريد بالتأكيد حذف الطلب «' + refLabel + '»؟')) break;
+      try {
+        // 1. Remove from local fallback orders
+        try {
+          const localOrds = JSON.parse(localStorage.getItem('enza_local_orders') || '[]');
+          const filtered = localOrds.filter(o => String(o.id) !== targetId);
+          localStorage.setItem('enza_local_orders', JSON.stringify(filtered));
+        } catch (e) {}
+        // 2. Remove associated ops / waybill metadata
+        ['enza_order_ops', 'enza_order_ops_v2'].forEach(k => {
+          try {
+            const m = JSON.parse(localStorage.getItem(k) || '{}');
+            if (m && Object.prototype.hasOwnProperty.call(m, targetId)) {
+              delete m[targetId];
+              localStorage.setItem(k, JSON.stringify(m));
+            }
+          } catch (e) {}
+        });
+        // 3. Remove from Supabase if it's a real DB order
+        try {
+          const sb = window.EnzaDB?.getClient?.();
+          if (sb && !targetId.startsWith('ord_')) {
+            await sb.from('order_lines').delete().eq('order_id', targetId);
+            await sb.from('orders').delete().eq('id', targetId);
+          }
+        } catch (sbErr) {}
+        // 4. Remove from in-memory lists
+        if (Array.isArray(state.liveOrders)) {
+          state.liveOrders = state.liveOrders.filter(o => String(o.id) !== targetId);
+        }
+        if (typeof demoOrders !== 'undefined' && Array.isArray(demoOrders)) {
+          const idx = demoOrders.findIndex(o => String(o.id) === targetId);
+          if (idx >= 0) demoOrders.splice(idx, 1);
+        }
+        if (state.screen === 'order' && String(state.selectedOrder) === targetId) {
+          navigate('orders');
+        } else {
+          render(false);
+        }
+        toast('تم حذف الطلب ' + refLabel + ' بنجاح');
+      } catch (err) {
+        toast('فشل حذف الطلب: ' + (err.message || 'حاول مرة أخرى'));
+      }
+      break;
+    }
 
     case 'open-order-invoice':
       openBrandedInvoiceModal(b.dataset.id || state.selectedOrder);
