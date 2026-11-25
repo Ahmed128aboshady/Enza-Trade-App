@@ -1918,7 +1918,7 @@ async function renderInvoiceToPngDataUrl(inv) {
   const qrCardH = 212;
   const qrCards = [
     { img: qrWebImg, label: 'الموقع الإلكتروني', sub: 'enza-trade-co.odoo.com', color: '#df2635' },
-    { img: qrFbImg,  label: 'صفحة فيسبوك',      sub: 'fb.com/enzatrade',       color: '#1877f2' },
+    { img: qrFbImg,  label: 'صفحة فيسبوك',      sub: 'fb.com/3D.Enza',         color: '#1877f2' },
     { img: qrWaImg,  label: 'واتساب مباشر',      sub: '01208640240',            color: '#157a40' }
   ];
   qrCards.forEach((qc, i) => {
@@ -1973,7 +1973,7 @@ async function renderInvoiceToPngDataUrl(inv) {
   ctx.textAlign = 'center';
   ctx.fillStyle = '#25262b';
   ctx.font = 'bold 22px "Cairo", "Segoe UI", Arial, sans-serif';
-  ctx.fillText('للطلب والاستفسار:  01208640240  •  enza-trade-co.odoo.com  •  fb.com/enzatrade', W / 2, y + 35);
+  ctx.fillText('للطلب والاستفسار:  01208640240  •  enza-trade-co.odoo.com  •  fb.com/3D.Enza', W / 2, y + 35);
 
   // Dark Branded Footer Bar
   const footH = 74;
@@ -2330,7 +2330,7 @@ function renderActivity() {
   '<section class="panel">' +
     '<div class="panel-title">إعدادات النظام والاتصال</div>' +
     '<button class="settings-row" style="width:100%;text-align:right" data-action="check-updates">' +
-      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.6.0') + ' • التحقق من GitHub Releases</small></span>' +
+      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.6.1') + ' • التحقق من GitHub Releases</small></span>' +
       icon('sync') +
     '</button>' +
     '<button class="settings-row" style="width:100%;text-align:right;color:var(--red)" data-action="reset-all-orders">' +
