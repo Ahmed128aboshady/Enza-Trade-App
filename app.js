@@ -1473,7 +1473,7 @@ function openBrandedInvoiceModal(orderOrId) {
           '<div class="inv-total-row"><span>المتبقي على العميل</span><b style="color:' + (inv.remaining > 0 ? 'var(--red)' : 'var(--green)') + '" class="ltr">' + money(inv.remaining) + ' ج.م</b></div>' +
         '</div>' +
       '</div>' +
-      '<div class="inv-footer">شكراً لتعاملكم مع <b>ENZA 3D Printing</b> • خامات الطباعة ثلاثية الأبعاد • فاتورة معتمدة إلكترونياً</div>' +
+      '<div class="inv-footer">شكراً لتعاملكم مع <b>ENZA 3D Printing</b> • خامات الطباعة ثلاثية الأبعاد بأعلى جودة</div>' +
     '</div>' +
     '<button type="button" class="primary-btn" style="background:#df2635;margin-bottom:8px" data-action="share-invoice-pdf">' + icon('receipt') + ' حفظ ومشاركة PDF على واتساب</button>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
@@ -1902,7 +1902,7 @@ async function renderInvoiceToPngDataUrl(inv) {
   ctx.textAlign = 'center';
   ctx.fillStyle = '#ffffff';
   ctx.font = 'bold 21px "Cairo", "Segoe UI", Arial, sans-serif';
-  ctx.fillText('شكراً لتعاملكم مع ENZA 3D Printing  •  فاتورة معتمدة إلكترونياً', W / 2, footY + 34);
+  ctx.fillText('شكراً لتعاملكم مع ENZA 3D Printing', W / 2, footY + 34);
   ctx.fillStyle = '#b9bcc6';
   ctx.font = '18px "Segoe UI", Arial, sans-serif';
   ctx.fillText('enza-trade-co.odoo.com  •  خامات الطباعة ثلاثية الأبعاد بأعلى جودة', W / 2, footY + 60);
@@ -2242,7 +2242,7 @@ function renderActivity() {
   '<section class="panel">' +
     '<div class="panel-title">إعدادات النظام والاتصال</div>' +
     '<button class="settings-row" style="width:100%;text-align:right" data-action="check-updates">' +
-      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.5.1') + ' • التحقق من GitHub Releases</small></span>' +
+      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.5.2') + ' • التحقق من GitHub Releases</small></span>' +
       icon('sync') +
     '</button>' +
     '<button class="settings-row" style="width:100%;text-align:right;color:var(--red)" data-action="reset-all-orders">' +
