@@ -1475,8 +1475,9 @@ function openBrandedInvoiceModal(orderOrId) {
       '</div>' +
       '<div class="inv-footer">شكراً لتعاملكم مع <b>ENZA 3D Printing</b> • خامات الطباعة ثلاثية الأبعاد • فاتورة معتمدة إلكترونياً</div>' +
     '</div>' +
+    '<button type="button" class="primary-btn" style="background:#df2635;margin-bottom:8px" data-action="share-invoice-pdf">' + icon('receipt') + ' حفظ ومشاركة PDF على واتساب</button>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
-      '<button type="button" class="primary-btn" data-action="share-invoice-image">' + icon('receipt') + ' مشاركة الفاتورة كصورة</button>' +
+      '<button type="button" class="secondary-btn" data-action="share-invoice-image">' + icon('box') + ' مشاركة كصورة</button>' +
       '<button type="button" class="secondary-btn" data-action="copy-invoice-text">' + icon('chat') + ' نسخ نص للواتساب</button>' +
     '</div>' +
     '<button type="button" class="secondary-btn" data-action="close-modal">إغلاق</button>'
@@ -2241,7 +2242,7 @@ function renderActivity() {
   '<section class="panel">' +
     '<div class="panel-title">إعدادات النظام والاتصال</div>' +
     '<button class="settings-row" style="width:100%;text-align:right" data-action="check-updates">' +
-      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.5.0') + ' • التحقق من GitHub Releases</small></span>' +
+      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.5.1') + ' • التحقق من GitHub Releases</small></span>' +
       icon('sync') +
     '</button>' +
     '<button class="settings-row" style="width:100%;text-align:right;color:var(--red)" data-action="reset-all-orders">' +
@@ -3738,6 +3739,24 @@ document.addEventListener('click', async e => {
     case 'open-order-invoice':
       openBrandedInvoiceModal(b.dataset.id || state.selectedOrder);
       break;
+
+    case 'share-invoice-pdf': {
+      const inv = state.activeInvoiceData || buildOrderInvoiceData(state.selectedOrder);
+      if (!inv) { toast('لا توجد بيانات فاتورة'); break; }
+      try {
+        toast('جاري تجهيز وحفظ ملف PDF للفاتورة...');
+        const dataUrl = await renderInvoiceToPngDataUrl(inv);
+        const safeRef = String(inv.ref || 'invoice').replace(/[^a-zA-Z0-9_-]/g, '');
+        if (window.EnzaShare && typeof window.EnzaShare.sharePdf === 'function') {
+          window.EnzaShare.sharePdf(dataUrl, 'ENZA-' + safeRef + '.pdf', 'فاتورة ENZA 3D Printing ' + inv.ref);
+        } else {
+          window.print();
+        }
+      } catch (err) {
+        toast('تعذر إنشاء ملف PDF: ' + (err.message || ''));
+      }
+      break;
+    }
 
     case 'share-invoice-image': {
       const inv = state.activeInvoiceData || buildOrderInvoiceData(state.selectedOrder);
