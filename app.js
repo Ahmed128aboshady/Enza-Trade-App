@@ -2109,8 +2109,8 @@ function openAddExpenseModal() {
       '<input type="text" id="exp-title" class="field" placeholder="مثال: بنزين للموتوسيكل / كارتة الطريق" required>' +
       '<label class="field-label" for="exp-notes">ملاحظات إضافية</label>' +
       '<input type="text" id="exp-notes" class="field" placeholder="أي تفاصيل أخرى (اختياري)">' +
-      '<label class="field-label" for="exp-receipt-file">تصوير الفاتورة أو اختيارها من المعرض (اختياري)</label>' +
-      '<input type="file" accept="image/*" id="exp-receipt-file" class="field">' +
+      '<label class="field-label">تصوير الفاتورة أو اختيارها من المعرض (اختياري)</label>' +
+      renderPhotoPickerButtons('exp-receipt-file', 'expenseReceiptBase64', 'exp-receipt-preview') +
       '<div id="exp-receipt-preview" style="margin-top:6px"></div>' +
       '<div class="inline-error" id="exp-form-error" role="alert"></div>' +
       '<button type="submit" class="primary-btn" id="exp-submit-btn" style="margin-top:16px">' +
@@ -2325,7 +2325,7 @@ function renderActivity() {
   '<section class="panel">' +
     '<div class="panel-title">إعدادات النظام والاتصال</div>' +
     '<button class="settings-row" style="width:100%;text-align:right" data-action="check-updates">' +
-      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.6.2') + ' • التحقق من GitHub Releases</small></span>' +
+      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.6.3') + ' • التحقق من GitHub Releases</small></span>' +
       icon('sync') +
     '</button>' +
     '<button class="settings-row" style="width:100%;text-align:right;color:var(--red)" data-action="reset-all-orders">' +
@@ -2691,6 +2691,48 @@ function openEditShippingModal(orderId) {
   );
 }
 
+function renderPhotoPickerButtons(inputId, targetKey, previewId) {
+  return '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">' +
+    '<button type="button" class="secondary-btn" data-action="pick-photo-camera" data-target="' + targetKey + '" data-preview="' + previewId + '" data-input="' + inputId + '" style="min-height:44px;border:1.5px solid var(--ink);font-weight:700">' +
+      icon('scan') + ' تصوير بالكاميرا' +
+    '</button>' +
+    '<button type="button" class="secondary-btn" data-action="pick-photo-file" data-input="' + inputId + '" style="min-height:44px">' +
+      icon('box') + ' اختيار ملف' +
+    '</button>' +
+  '</div>' +
+  '<input type="file" accept="image/*" id="' + inputId + '" style="display:none">';
+}
+
+async function captureNativeCameraPhoto(targetKey, previewId, fallbackInputId) {
+  const Cam = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Camera;
+  if (Cam && typeof Cam.getPhoto === 'function') {
+    try {
+      const photo = await Cam.getPhoto({
+        quality: 82,
+        allowEditing: false,
+        resultType: 'dataUrl',
+        source: 'CAMERA'
+      });
+      if (photo && photo.dataUrl) {
+        state[targetKey] = photo.dataUrl;
+        const box = document.getElementById(previewId);
+        if (box) {
+          box.innerHTML = '<img src="' + photo.dataUrl + '" style="max-height:140px;border-radius:10px;border:1px solid #ddd;margin-top:6px">';
+        }
+        toast('تم التقاط الصورة بنجاح');
+        return;
+      }
+    } catch (err) {
+      if (err && /cancel/i.test(String(err.message || ''))) return;
+    }
+  }
+  const inp = document.getElementById(fallbackInputId);
+  if (inp) {
+    inp.setAttribute('capture', 'environment');
+    inp.click();
+  }
+}
+
 function openAttachWaybillModal(orderId) {
   const o = oBy(orderId || state.selectedOrder);
   if (!o) return;
@@ -2704,9 +2746,9 @@ function openAttachWaybillModal(orderId) {
 
   openModal('إرفاق صورة بوليصة الشحن (Urgent)',
     '<p class="sheet-description">' + esc(ref) + ' · ' + esc(cName) + '</p>' +
-    '<form id="direct-waybill-form" data-id="' + o.id + '">' +
-      '<label class="field-label" for="direct-waybill-file">تصوير أو اختيار صورة بوليصة الشحن (Urgent) *</label>' +
-      '<input type="file" accept="image/*" id="direct-waybill-file" class="field" required>' +
+    '<form id="direct-waybill-form" data-id="' + o.id + '" novalidate>' +
+      '<label class="field-label">تصوير أو اختيار صورة بوليصة الشحن (Urgent) *</label>' +
+      renderPhotoPickerButtons('direct-waybill-file', 'directWaybillBase64', 'direct-waybill-preview') +
       '<div id="direct-waybill-preview" style="margin-top:10px;text-align:center">' +
         (ops.waybill ? '<img src="' + esc(ops.waybill) + '" style="max-height:130px;border-radius:10px;border:1px solid #ddd">' : '') +
       '</div>' +
@@ -3005,8 +3047,8 @@ function renderDisbursementModal() {
         '</div>' +
       '</div>' +
       '<div style="background:#f8f9fa;border:1px solid #e2e1dd;border-radius:12px;padding:12px;margin:12px 0">' +
-        '<label class="field-label" for="disb-waybill-file" style="margin-top:0">' + icon('truck') + ' إرفاق صورة بوليصة الشحن (Urgent) [اختياري — الآن أو لاحقاً]</label>' +
-        '<input type="file" accept="image/*" id="disb-waybill-file" class="field">' +
+        '<label class="field-label" style="margin-top:0">' + icon('truck') + ' إرفاق صورة بوليصة الشحن (Urgent) [اختياري — الآن أو لاحقاً]</label>' +
+        renderPhotoPickerButtons('disb-waybill-file', 'disburseWaybillBase64', 'disb-waybill-preview') +
         '<div id="disb-waybill-preview" style="margin-top:6px">' +
           (state.disburseWaybillBase64 ? '<img src="' + state.disburseWaybillBase64 + '" style="max-height:80px;border-radius:8px;margin-top:6px;border:1px solid #ddd">' : '') +
         '</div>' +
@@ -3819,6 +3861,20 @@ document.addEventListener('click', async e => {
     case 'open-cash-entry-detail':
       openCashEntryDetailModal(b.dataset.kind, b.dataset.id);
       break;
+
+    case 'pick-photo-camera':
+      await captureNativeCameraPhoto(b.dataset.target, b.dataset.preview, b.dataset.input);
+      break;
+
+    case 'pick-photo-file': {
+      const inp = document.getElementById(b.dataset.input);
+      if (inp) {
+        inp.removeAttribute('capture');
+        inp.value = '';
+        inp.click();
+      }
+      break;
+    }
 
     case 'delete-order': {
       const targetId = String(b.dataset.id || state.selectedOrder || '');
