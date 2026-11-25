@@ -2095,6 +2095,7 @@ function openQuickAddStockModal(preselectedProd = null) {
     '</div>' +
     '<form id="quick-add-stock-form">' +
       '<label class="field-label" for="quick-stock-product">المنتج / البكرة *</label>' +
+      '<input type="search" id="quick-stock-search" class="field" placeholder="ابحث باسم الخامة أو اللون (مثال: PLA أحمر)..." autocomplete="off" style="margin-bottom:6px">' +
       '<select id="quick-stock-product" class="field" style="direction:rtl">' +
         prods.map(p =>
           '<option value="' + p.id + '" ' + (String(p.id) === String(selProd.id) ? 'selected' : '') + '>' +
@@ -2256,7 +2257,7 @@ function renderActivity() {
   '<section class="panel">' +
     '<div class="panel-title">إعدادات النظام والاتصال</div>' +
     '<button class="settings-row" style="width:100%;text-align:right" data-action="check-updates">' +
-      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.5.3') + ' • التحقق من GitHub Releases</small></span>' +
+      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.5.4') + ' • التحقق من GitHub Releases</small></span>' +
       icon('sync') +
     '</button>' +
     '<button class="settings-row" style="width:100%;text-align:right;color:var(--red)" data-action="reset-all-orders">' +
@@ -2855,6 +2856,7 @@ function renderDisbursementModal() {
             icon('trash') + ' حذف' +
           '</button>' : '') +
       '</div>' +
+      '<input type="search" class="field disb-item-search" data-idx="' + idx + '" placeholder="ابحث باسم الخامة أو اللون (مثال: PLA أحمر / ASA أزرق)..." autocomplete="off" style="margin-bottom:6px">' +
       '<select class="field disb-item-product" data-idx="' + idx + '" style="direction:rtl">' +
         prods.map(prod =>
           '<option value="' + prod.id + '" ' + (String(prod.id) === String(p.id) ? 'selected' : '') + '>' +
@@ -4021,6 +4023,63 @@ document.addEventListener('input', e => {
           (String(state.disburseSelectedCustomer) === String(c.id) ? icon('check') : icon('left')) +
         '</button>'
       ).join('');
+    }
+  }
+
+  if (e.target.classList.contains('disb-item-search')) {
+    const idx = Number(e.target.dataset.idx);
+    const term = e.target.value || '';
+    const prods = getProducts();
+    const filtered = prods.filter(prod => {
+      const hay = [prod.brand, prod.name, prod.color_name, prod.color, prod.sku, prod.barcode].filter(Boolean).join(' ');
+      return matchesSearch(hay, term);
+    });
+    const card = e.target.closest('.disb-item-card');
+    const sel = card ? card.querySelector('.disb-item-product') : null;
+    if (sel) {
+      const curId = state.disburseItems[idx] ? String(state.disburseItems[idx].variantId) : '';
+      if (filtered.length === 0) {
+        sel.innerHTML = '<option value="" disabled selected>لا توجد خامة مطابقة للبحث</option>';
+      } else {
+        const hasCur = filtered.some(p => String(p.id) === curId);
+        const pickId = hasCur ? curId : String(filtered[0].id);
+        sel.innerHTML = filtered.map(prod =>
+          '<option value="' + prod.id + '" ' + (String(prod.id) === pickId ? 'selected' : '') + '>' +
+            esc(prod.brand) + ' — ' + esc(prod.name) + ' (' + esc(prod.color_name || prod.color) + ') [متاح: ' + (prod.available_qty !== undefined ? prod.available_qty : prod.stock) + ']' +
+          '</option>'
+        ).join('');
+        if (!hasCur && state.disburseItems[idx]) {
+          const picked = filtered[0];
+          state.disburseItems[idx].variantId = picked.id;
+          const newPrice = Number(picked.sale_price ?? picked.price ?? 0);
+          state.disburseItems[idx].unitPrice = newPrice;
+          const priceInp = card.querySelector('.disb-item-price');
+          if (priceInp) priceInp.value = newPrice;
+          recalculateDisbursementTotals(false);
+        }
+      }
+    }
+  }
+
+  if (e.target.id === 'quick-stock-search') {
+    const term = e.target.value || '';
+    const prods = getProducts();
+    const filtered = prods.filter(prod => {
+      const hay = [prod.brand, prod.name, prod.color_name, prod.color, prod.sku, prod.barcode].filter(Boolean).join(' ');
+      return matchesSearch(hay, term);
+    });
+    const sel = $('#quick-stock-product');
+    if (sel) {
+      if (filtered.length === 0) {
+        sel.innerHTML = '<option value="" disabled selected>لا توجد خامة مطابقة للبحث</option>';
+      } else {
+        sel.innerHTML = filtered.map((p, i) =>
+          '<option value="' + p.id + '" ' + (i === 0 ? 'selected' : '') + '>' +
+            esc(p.brand) + ' — ' + esc(p.name) + ' (' + esc(p.color_name || p.color) + ') [الرصيد الحالي: ' + (p.available_qty !== undefined ? p.available_qty : p.stock) + ']' +
+          '</option>'
+        ).join('');
+        state.quickAddStockVariantId = filtered[0].id;
+      }
     }
   }
 
