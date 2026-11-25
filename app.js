@@ -1331,16 +1331,37 @@ function buildOrderInvoiceData(orderOrId) {
   const grandTotal = total(o);
   const subtotal = Math.max(0, grandTotal - shipping);
   const rows = [];
+  const allProds = getProducts();
+
+  const findProductForLine = l => {
+    if (l.variant) return l.variant;
+    const byId = pBy(l.variant_id || l.variantId);
+    if (byId) return byId;
+    const snap = String(l.product_name || l.label_snapshot || l.name || '').trim().toLowerCase();
+    if (snap) {
+      const matched = allProds.find(p => {
+        const full = ((p.brand || '') + ' ' + (p.name || '') + ' ' + (p.color_name || p.color || '')).toLowerCase();
+        return full.includes(snap) || snap.includes((p.name || '').toLowerCase());
+      });
+      if (matched) return matched;
+    }
+    return {};
+  };
 
   if (Array.isArray(o.lines) && o.lines.length > 0) {
     o.lines.forEach(l => {
-      const p = l.variant || pBy(l.variant_id) || {};
+      const p = findProductForLine(l);
       const qty = Number(l.qty || 1);
       const unitPrice = Number(l.unit_price ?? p.sale_price ?? 0);
+      const extId = p.external_id || l.external_id || null;
+      const photoUrl = getProductPhotoUrl({ image_url: p.image_url || l.image_url, external_id: extId }, false);
       rows.push({
-        name: p.name || l.product_name || 'منتج ENZA',
-        color: p.color_name || p.color || '',
-        brand: p.brand || '',
+        name: p.name || l.product_name || l.label_snapshot || l.name || 'بكرة ENZA',
+        color: p.color_name || p.color || l.color_name || '',
+        colorHex: p.color_hex || p.hex || l.color_hex || '#7c858e',
+        brand: p.brand || l.brand || '',
+        type: p.type || l.type || 'spool',
+        photoUrl,
         qty,
         unitPrice,
         lineTotal: qty * unitPrice
@@ -1352,9 +1373,12 @@ function buildOrderInvoiceData(orderOrId) {
       const q = Number(qty || 1);
       const unitPrice = Number(customPrice ?? p.sale_price ?? p.price ?? 0);
       rows.push({
-        name: p.name || 'منتج ENZA',
+        name: p.name || 'بكرة ENZA',
         color: p.color_name || p.color || '',
+        colorHex: p.color_hex || p.hex || '#7c858e',
         brand: p.brand || '',
+        type: p.type || 'spool',
+        photoUrl: getProductPhotoUrl(p, false),
         qty: q,
         unitPrice,
         lineTotal: q * unitPrice
@@ -1388,19 +1412,20 @@ function openBrandedInvoiceModal(orderOrId) {
   state.activeInvoiceData = inv;
 
   const payStatusHtml = inv.remaining <= 0
-    ? '<span class="badge" style="background:var(--green-bg);color:var(--green);font-weight:700">خالص بالكامل</span>'
+    ? '<span class="badge" style="background:var(--green-bg);color:var(--green);font-weight:700;padding:3px 9px">خالص بالكامل</span>'
     : (inv.paid > 0
-      ? '<span class="badge" style="background:#fff6e5;color:#b26a00;font-weight:700">مدفوع جزئياً</span>'
-      : '<span class="badge" style="background:#fff0f1;color:var(--red);font-weight:700">آجل بالكامل</span>');
+      ? '<span class="badge" style="background:#fff6e5;color:#b26a00;font-weight:700;padding:3px 9px">مدفوع جزئياً</span>'
+      : '<span class="badge" style="background:#fff0f1;color:var(--red);font-weight:700;padding:3px 9px">آجل بالكامل</span>');
 
   openModal('فاتورة ENZA الرسمية',
     '<div class="enza-invoice-paper">' +
+      '<div class="inv-watermark"><img src="assets/enza-logo.png" alt=""></div>' +
       '<div class="inv-head">' +
         '<div class="inv-head-brand">' +
           '<img src="assets/enza-logo.png" alt="ENZA 3D Printing" class="inv-head-logo">' +
           '<div>' +
             '<h3>ENZA 3D PRINTING</h3>' +
-            '<small>فاتورة مبيعات • SALES INVOICE</small>' +
+            '<small>فاتورة مبيعات رسمية • OFFICIAL INVOICE</small>' +
           '</div>' +
         '</div>' +
         '<div class="inv-head-meta">' +
@@ -1413,32 +1438,42 @@ function openBrandedInvoiceModal(orderOrId) {
       '<div class="inv-body">' +
         '<div class="inv-info-grid">' +
           '<div><small>اسم العميل</small><b>' + esc(inv.customerName) + '</b></div>' +
-          '<div><small>رقم التليفون</small><b class="ltr">' + esc(inv.customerPhone) + '</b></div>' +
+          '<div><small>رقم التليفون</small><b class="ltr" style="text-align:right">' + esc(inv.customerPhone) + '</b></div>' +
           '<div><small>المدينة / العنوان</small><b>' + esc([inv.customerCity, inv.customerAddress].filter(v => v && v !== '—').join(' — ') || '—') + '</b></div>' +
-          '<div><small>طريقة الدفع والحالة</small><div>' + payStatusHtml + '</div></div>' +
+          '<div><small>حالة السداد</small><div style="margin-top:2px">' + payStatusHtml + '</div></div>' +
         '</div>' +
         '<table class="inv-table">' +
           '<thead><tr><th>الصنف واللون</th><th style="text-align:center">الكمية</th><th style="text-align:center">السعر</th><th>الإجمالي</th></tr></thead>' +
           '<tbody>' +
-            (inv.rows.length > 0 ? inv.rows.map(r =>
-              '<tr>' +
-                '<td><b>' + esc(r.name) + '</b>' + (r.color ? '<div style="font-size:10px;color:var(--muted)">' + esc(r.color) + '</div>' : '') + '</td>' +
-                '<td style="text-align:center">' + r.qty + '</td>' +
+            (inv.rows.length > 0 ? inv.rows.map(r => {
+              const thumbHtml = r.photoUrl
+                ? '<img class="inv-prod-thumb" src="' + esc(r.photoUrl) + '" alt="" onerror="this.style.display=\'none\'">'
+                : '<span class="inv-prod-thumb" style="display:grid;place-items:center;background:#faf9f6"><span style="width:22px;height:22px;border-radius:50%;background:' + esc(r.colorHex) + ';border:3px solid #25262b;display:block"></span></span>';
+              return '<tr>' +
+                '<td><div class="inv-prod-cell">' +
+                  thumbHtml +
+                  '<div>' +
+                    (r.brand ? '<div style="font-size:9px;color:var(--muted);font-weight:700">' + esc(r.brand) + '</div>' : '') +
+                    '<b>' + esc(r.name) + '</b>' +
+                    (r.color ? '<div style="font-size:10px;color:var(--muted);margin-top:2px"><span class="inv-color-dot" style="background:' + esc(r.colorHex) + '"></span>' + esc(r.color) + '</div>' : '') +
+                  '</div>' +
+                '</div></td>' +
+                '<td style="text-align:center;font-weight:700">' + r.qty + '</td>' +
                 '<td style="text-align:center" class="ltr">' + money(r.unitPrice) + '</td>' +
                 '<td class="ltr">' + money(r.lineTotal) + ' ج.م</td>' +
-              '</tr>'
-            ).join('') : '<tr><td colspan="4" style="text-align:center;color:var(--muted)">لا توجد بنود مسجلة</td></tr>') +
+              '</tr>';
+            }).join('') : '<tr><td colspan="4" style="text-align:center;color:var(--muted)">لا توجد بنود مسجلة</td></tr>') +
           '</tbody>' +
         '</table>' +
         '<div class="inv-totals">' +
           '<div class="inv-total-row"><span>قيمة المنتجات</span><b class="ltr">' + money(inv.subtotal) + ' ج.م</b></div>' +
           '<div class="inv-total-row"><span>مصاريف الشحن والتوصيل</span><b class="ltr">' + money(inv.shipping) + ' ج.م</b></div>' +
           '<div class="inv-total-row grand"><span>الإجمالي النهائي</span><span class="ltr">' + money(inv.grandTotal) + ' ج.م</span></div>' +
-          '<div class="inv-total-row" style="margin-top:6px"><span>المدفوع</span><b style="color:var(--green)" class="ltr">' + money(inv.paid) + ' ج.م</b></div>' +
+          '<div class="inv-total-row" style="margin-top:6px"><span>المبلغ المدفوع</span><b style="color:var(--green)" class="ltr">' + money(inv.paid) + ' ج.م</b></div>' +
           '<div class="inv-total-row"><span>المتبقي على العميل</span><b style="color:' + (inv.remaining > 0 ? 'var(--red)' : 'var(--green)') + '" class="ltr">' + money(inv.remaining) + ' ج.م</b></div>' +
         '</div>' +
       '</div>' +
-      '<div class="inv-footer">شكراً لتعاملكم مع <b>ENZA 3D Printing</b> — خامات طباعة ثلاثية الأبعاد بأعلى جودة</div>' +
+      '<div class="inv-footer">شكراً لتعاملكم مع <b>ENZA 3D Printing</b> • خامات الطباعة ثلاثية الأبعاد • فاتورة معتمدة إلكترونياً</div>' +
     '</div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">' +
       '<button type="button" class="primary-btn" data-action="share-invoice-image">' + icon('receipt') + ' مشاركة الفاتورة كصورة</button>' +
@@ -1450,6 +1485,7 @@ function openBrandedInvoiceModal(orderOrId) {
 
 function loadImageAsync(src) {
   return new Promise(resolve => {
+    if (!src) return resolve(null);
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
@@ -1458,55 +1494,160 @@ function loadImageAsync(src) {
   });
 }
 
-async function renderInvoiceToPngDataUrl(inv) {
-  const W = 1080;
-  const rowH = 74;
-  const rowsCount = Math.max(1, inv.rows.length);
-  const H = 760 + rowsCount * rowH + 220;
-  const canvas = document.createElement('canvas');
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext('2d');
+async function loadSafeCanvasPhoto(photoUrl) {
+  if (!photoUrl) return null;
+  if (photoUrl.startsWith('data:')) return loadImageAsync(photoUrl);
+  if (window.EnzaShare && typeof window.EnzaShare.fetchImageDataUrl === 'function') {
+    try {
+      const dataUrl = window.EnzaShare.fetchImageDataUrl(photoUrl);
+      if (dataUrl && dataUrl.startsWith('data:image/')) {
+        return await loadImageAsync(dataUrl);
+      }
+    } catch (e) {}
+  }
+  return loadImageAsync(photoUrl);
+}
 
-  // Background
-  ctx.fillStyle = '#f7f6f3';
-  ctx.fillRect(0, 0, W, H);
-
-  // Paper card
-  const pad = 42;
-  const cardW = W - pad * 2;
-  const cardH = H - pad * 2;
+function drawSpoolOrBottleFallback(ctx, x, y, size, colorHex, type) {
+  ctx.save();
+  // Clean card tile
   ctx.fillStyle = '#ffffff';
   ctx.beginPath();
-  ctx.roundRect ? ctx.roundRect(pad, pad, cardW, cardH, 28) : ctx.rect(pad, pad, cardW, cardH);
+  ctx.roundRect ? ctx.roundRect(x, y, size, size, 12) : ctx.rect(x, y, size, size);
   ctx.fill();
   ctx.strokeStyle = '#e6e3dc';
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Dark header band
-  const headH = 175;
+  const cx = x + size / 2;
+  const cy = y + size / 2;
+  if (type === 'bottle') {
+    // 3D Resin bottle
+    ctx.fillStyle = '#25262b';
+    ctx.fillRect(cx - 10, y + 8, 20, 10);
+    ctx.fillStyle = colorHex || '#7c858e';
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(cx - 17, y + 18, 34, size - 26, 7) : ctx.rect(cx - 17, y + 18, 34, size - 26);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillRect(cx - 14, cy - 2, 28, 14);
+  } else {
+    // 3D Filament Spool with exact filament color
+    const rOuter = size * 0.38;
+    const rInner = size * 0.16;
+    ctx.beginPath();
+    ctx.arc(cx, cy, rOuter, 0, Math.PI * 2);
+    ctx.fillStyle = '#25262b';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx, cy, rOuter - 5, 0, Math.PI * 2);
+    ctx.fillStyle = colorHex || '#df2635';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx, cy, rInner + 4, 0, Math.PI * 2);
+    ctx.fillStyle = '#f5f4f0';
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx, cy, rInner - 2, 0, Math.PI * 2);
+    ctx.fillStyle = '#25262b';
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+async function renderInvoiceToPngDataUrl(inv) {
+  const W = 1080;
+  const rowH = 104;
+  const rows = inv.rows.length ? inv.rows : [{ name: 'لا توجد بنود', color: '', colorHex: '#7c858e', brand: '', type: 'spool', photoUrl: '', qty: 0, unitPrice: 0, lineTotal: 0 }];
+  const H = 860 + rows.length * rowH + 220;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  // Preload logo + product photos in parallel
+  const [logoImg, ...rowImgs] = await Promise.all([
+    loadImageAsync('assets/enza-logo.png'),
+    ...rows.map(r => loadSafeCanvasPhoto(r.photoUrl))
+  ]);
+
+  // Outer soft background
+  ctx.fillStyle = '#f3f1ec';
+  ctx.fillRect(0, 0, W, H);
+
+  // Main white paper card
+  const pad = 38;
+  const cardW = W - pad * 2;
+  const cardH = H - pad * 2;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.08)';
+  ctx.shadowBlur = 24;
+  ctx.shadowOffsetY = 8;
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(pad, pad, cardW, cardH, 30) : ctx.rect(pad, pad, cardW, cardH);
+  ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = '#e5e2da';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(pad, pad, cardW, cardH, 30) : ctx.rect(pad, pad, cardW, cardH);
+  ctx.stroke();
+
+  // Centered ENZA 3D Printing Background Watermark Logo
+  if (logoImg) {
+    ctx.save();
+    ctx.globalAlpha = 0.065;
+    const wmSize = 540;
+    const wmScale = Math.min(wmSize / logoImg.width, wmSize / logoImg.height);
+    const wmW = logoImg.width * wmScale;
+    const wmH = logoImg.height * wmScale;
+    ctx.drawImage(logoImg, (W - wmW) / 2, pad + 260 + (cardH - 380 - wmH) / 2, wmW, wmH);
+    ctx.restore();
+  }
+
+  // Rich Gradient Header Band
+  const headH = 195;
   ctx.save();
   ctx.beginPath();
-  ctx.roundRect ? ctx.roundRect(pad, pad, cardW, headH, [28, 28, 0, 0]) : ctx.rect(pad, pad, cardW, headH);
+  ctx.roundRect ? ctx.roundRect(pad, pad, cardW, headH, [30, 30, 0, 0]) : ctx.rect(pad, pad, cardW, headH);
   ctx.clip();
-  ctx.fillStyle = '#25262b';
+  const hGrad = ctx.createLinearGradient(pad, pad, pad + cardW, pad + headH);
+  hGrad.addColorStop(0, '#1c1d22');
+  hGrad.addColorStop(1, '#2f313a');
+  ctx.fillStyle = hGrad;
   ctx.fillRect(pad, pad, cardW, headH);
+  // Subtle decorative red glow circles
+  ctx.fillStyle = 'rgba(223, 38, 53, 0.16)';
+  ctx.beginPath();
+  ctx.arc(pad + 60, pad + 30, 120, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.04)';
+  ctx.beginPath();
+  ctx.arc(pad + cardW - 180, pad + headH + 20, 150, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 
   // Red brand accent bar
-  ctx.fillStyle = '#df2635';
+  const barGrad = ctx.createLinearGradient(pad, 0, pad + cardW, 0);
+  barGrad.addColorStop(0, '#df2635');
+  barGrad.addColorStop(0.7, '#b81d29');
+  barGrad.addColorStop(1, '#25262b');
+  ctx.fillStyle = barGrad;
   ctx.fillRect(pad, pad + headH, cardW, 10);
 
-  // Logo box on right (RTL)
-  const logoImg = await loadImageAsync('assets/enza-logo.png');
-  const logoBoxSize = 114;
+  // Header Logo Badge (Right side - RTL)
+  const logoBoxSize = 128;
   const logoX = pad + cardW - 36 - logoBoxSize;
-  const logoY = pad + 30;
+  const logoY = pad + 33;
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.28)';
+  ctx.shadowBlur = 16;
   ctx.fillStyle = '#ffffff';
   ctx.beginPath();
-  ctx.roundRect ? ctx.roundRect(logoX, logoY, logoBoxSize, logoBoxSize, 20) : ctx.rect(logoX, logoY, logoBoxSize, logoBoxSize);
+  ctx.roundRect ? ctx.roundRect(logoX, logoY, logoBoxSize, logoBoxSize, 24) : ctx.rect(logoX, logoY, logoBoxSize, logoBoxSize);
   ctx.fill();
+  ctx.restore();
   if (logoImg) {
     const scale = Math.min((logoBoxSize - 16) / logoImg.width, (logoBoxSize - 16) / logoImg.height);
     const dw = logoImg.width * scale;
@@ -1514,161 +1655,256 @@ async function renderInvoiceToPngDataUrl(inv) {
     ctx.drawImage(logoImg, logoX + (logoBoxSize - dw) / 2, logoY + (logoBoxSize - dh) / 2, dw, dh);
   }
 
-  // Brand title next to logo (RTL right-aligned)
+  // Brand Title next to logo
   ctx.direction = 'rtl';
   ctx.textAlign = 'right';
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 36px "Cairo", "Segoe UI", Arial, sans-serif';
-  ctx.fillText('ENZA 3D PRINTING', logoX - 24, pad + 82);
-  ctx.fillStyle = '#d4d5db';
-  ctx.font = '24px "Cairo", "Segoe UI", Arial, sans-serif';
-  ctx.fillText('فاتورة مبيعات رسمية  •  SALES INVOICE', logoX - 24, pad + 124);
+  ctx.font = 'bold 38px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText('ENZA 3D PRINTING', logoX - 26, pad + 88);
+  ctx.fillStyle = '#d4d6de';
+  ctx.font = '23px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText('فاتورة مبيعات رسمية  •  OFFICIAL INVOICE', logoX - 26, pad + 132);
 
-  // Invoice Ref & Date on left
-  ctx.textAlign = 'left';
+  // Invoice Number Red Pill + Date/Time (Left side)
+  const pillX = pad + 36;
+  const pillY = pad + 42;
+  ctx.fillStyle = '#df2635';
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(pillX, pillY, 240, 48, 12) : ctx.rect(pillX, pillY, 240, 48);
+  ctx.fill();
+  ctx.textAlign = 'center';
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 32px "Segoe UI", Arial, sans-serif';
-  ctx.fillText(inv.ref, pad + 36, pad + 78);
-  ctx.fillStyle = '#d4d5db';
-  ctx.font = '22px "Cairo", "Segoe UI", Arial, sans-serif';
-  ctx.fillText(inv.dateText, pad + 36, pad + 114);
-  ctx.fillText(inv.timeText, pad + 36, pad + 144);
+  ctx.font = 'bold 26px "Segoe UI", Arial, sans-serif';
+  ctx.fillText(inv.ref, pillX + 120, pillY + 33);
 
-  // Customer Info Box
-  let y = pad + headH + 40;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#e1e2e8';
+  ctx.font = '22px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText(inv.dateText, pillX, pad + 126);
+  ctx.fillStyle = '#bfc2cc';
+  ctx.font = '21px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText(inv.timeText, pillX, pad + 158);
+
+  // Clean 2x2 Customer Details Box (ZERO overlap)
+  let y = pad + headH + 38;
   const innerX = pad + 36;
   const innerW = cardW - 72;
-  ctx.fillStyle = '#f7f6f3';
+  const infoH = 166;
+  ctx.fillStyle = 'rgba(247, 246, 243, 0.92)';
   ctx.beginPath();
-  ctx.roundRect ? ctx.roundRect(innerX, y, innerW, 138, 18) : ctx.rect(innerX, y, innerW, 138);
+  ctx.roundRect ? ctx.roundRect(innerX, y, innerW, infoH, 20) : ctx.rect(innerX, y, innerW, infoH);
   ctx.fill();
-  ctx.strokeStyle = '#ece9e2';
+  ctx.strokeStyle = '#e9e6de';
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  ctx.textAlign = 'right';
-  ctx.fillStyle = '#777777';
-  ctx.font = '20px "Cairo", "Segoe UI", Arial, sans-serif';
-  ctx.fillText('العميل:', innerX + innerW - 24, y + 40);
-  ctx.fillStyle = '#25262b';
-  ctx.font = 'bold 26px "Cairo", "Segoe UI", Arial, sans-serif';
-  ctx.fillText(inv.customerName, innerX + innerW - 105, y + 42);
+  // Subtle vertical divider in center
+  ctx.strokeStyle = '#e5e2da';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(innerX + innerW / 2, y + 20);
+  ctx.lineTo(innerX + innerW / 2, y + infoH - 20);
+  ctx.stroke();
 
-  ctx.fillStyle = '#777777';
-  ctx.font = '20px "Cairo", "Segoe UI", Arial, sans-serif';
-  ctx.fillText('العنوان:', innerX + innerW - 24, y + 86);
+  // Right column: Customer Name & Address
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#80828a';
+  ctx.font = '19px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText('اسم العميل', innerX + innerW - 24, y + 34);
+  ctx.fillStyle = '#1e1f24';
+  ctx.font = 'bold 27px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText(String(inv.customerName).slice(0, 26), innerX + innerW - 24, y + 68);
+
+  ctx.fillStyle = '#80828a';
+  ctx.font = '19px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText('المدينة / العنوان', innerX + innerW - 24, y + 112);
   ctx.fillStyle = '#25262b';
   ctx.font = '22px "Cairo", "Segoe UI", Arial, sans-serif';
   const addrLine = [inv.customerCity, inv.customerAddress].filter(v => v && v !== '—').join(' — ') || '—';
-  ctx.fillText(addrLine.slice(0, 44), innerX + innerW - 105, y + 86);
+  ctx.fillText(addrLine.slice(0, 34), innerX + innerW - 24, y + 144);
 
-  ctx.fillStyle = '#777777';
-  ctx.font = '20px "Cairo", "Segoe UI", Arial, sans-serif';
-  ctx.fillText('التليفون:', innerX + 280, y + 40);
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#25262b';
-  ctx.font = 'bold 24px "Segoe UI", Arial, sans-serif';
-  ctx.fillText(inv.customerPhone, innerX + 24, y + 42);
+  // Left column: Phone & Payment Status Pill
+  const leftColRight = innerX + innerW / 2 - 24;
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#80828a';
+  ctx.font = '19px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText('رقم التليفون', leftColRight, y + 34);
+  ctx.fillStyle = '#1e1f24';
+  ctx.font = 'bold 25px "Segoe UI", Arial, sans-serif';
+  ctx.fillText(inv.customerPhone, leftColRight, y + 68);
 
-  ctx.textAlign = 'left';
-  const statusBadgeText = inv.remaining <= 0 ? 'خالص بالكامل' : (inv.paid > 0 ? 'مدفوع جزئياً' : 'آجل بالكامل');
-  ctx.fillStyle = inv.remaining <= 0 ? '#1b7f46' : '#df2635';
-  ctx.font = 'bold 23px "Cairo", "Segoe UI", Arial, sans-serif';
-  ctx.fillText(statusBadgeText, innerX + 24, y + 90);
+  ctx.fillStyle = '#80828a';
+  ctx.font = '19px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText('حالة السداد', leftColRight, y + 112);
+
+  const isPaidFull = inv.remaining <= 0;
+  const isPartial = !isPaidFull && inv.paid > 0;
+  const badgeText = isPaidFull ? 'خالص بالكامل' : (isPartial ? 'مدفوع جزئياً' : 'آجل بالكامل');
+  const badgeBg = isPaidFull ? '#e6f6ec' : (isPartial ? '#fff4e0' : '#fdebec');
+  const badgeFg = isPaidFull ? '#157a40' : (isPartial ? '#b26a00' : '#df2635');
+  const bW = 175, bH = 38;
+  ctx.fillStyle = badgeBg;
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(leftColRight - bW, y + 120, bW, bH, 10) : ctx.rect(leftColRight - bW, y + 120, bW, bH);
+  ctx.fill();
+  ctx.textAlign = 'center';
+  ctx.fillStyle = badgeFg;
+  ctx.font = 'bold 21px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText(badgeText, leftColRight - bW / 2, y + 146);
 
   // Table Header
-  y += 168;
+  y += infoH + 28;
   ctx.fillStyle = '#25262b';
   ctx.beginPath();
-  ctx.roundRect ? ctx.roundRect(innerX, y, innerW, 58, 12) : ctx.rect(innerX, y, innerW, 58);
+  ctx.roundRect ? ctx.roundRect(innerX, y, innerW, 60, 14) : ctx.rect(innerX, y, innerW, 60);
   ctx.fill();
 
   ctx.fillStyle = '#ffffff';
   ctx.font = 'bold 22px "Cairo", "Segoe UI", Arial, sans-serif';
   ctx.textAlign = 'right';
-  ctx.fillText('الصنف واللون', innerX + innerW - 20, y + 38);
+  ctx.fillText('الصنف واللون والشكل', innerX + innerW - 22, y + 39);
   ctx.textAlign = 'center';
-  ctx.fillText('الكمية', innerX + 340, y + 38);
-  ctx.fillText('السعر', innerX + 220, y + 38);
+  ctx.fillText('الكمية', innerX + 350, y + 39);
+  ctx.fillText('السعر', innerX + 225, y + 39);
   ctx.textAlign = 'left';
-  ctx.fillText('الإجمالي', innerX + 20, y + 38);
+  ctx.fillText('الإجمالي', innerX + 22, y + 39);
 
-  y += 58;
-  const rows = inv.rows.length ? inv.rows : [{ name: 'لا توجد بنود', color: '', qty: 0, unitPrice: 0, lineTotal: 0 }];
+  // Table Rows with Real Spool Photo / 3D Spool Graphic + Color Swatch
+  y += 60;
   rows.forEach((r, idx) => {
     if (idx % 2 === 1) {
-      ctx.fillStyle = '#faf9f6';
+      ctx.fillStyle = 'rgba(250, 249, 246, 0.85)';
       ctx.fillRect(innerX, y, innerW, rowH);
     }
-    ctx.strokeStyle = '#f0ede7';
+    ctx.strokeStyle = '#efece6';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(innerX, y + rowH);
     ctx.lineTo(innerX + innerW, y + rowH);
     ctx.stroke();
 
-    ctx.textAlign = 'right';
-    ctx.fillStyle = '#25262b';
-    ctx.font = 'bold 23px "Cairo", "Segoe UI", Arial, sans-serif';
-    ctx.fillText(String(r.name).slice(0, 34), innerX + innerW - 20, y + 34);
-    if (r.color) {
-      ctx.fillStyle = '#7a7a7a';
-      ctx.font = '19px "Cairo", "Segoe UI", Arial, sans-serif';
-      ctx.fillText(String(r.color).slice(0, 32), innerX + innerW - 20, y + 60);
+    // Spool / Bottle Photo Tile on right
+    const thumbSize = 74;
+    const thumbX = innerX + innerW - 16 - thumbSize;
+    const thumbY = y + (rowH - thumbSize) / 2;
+    const pImg = rowImgs[idx];
+    if (pImg) {
+      ctx.save();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(thumbX, thumbY, thumbSize, thumbSize, 14) : ctx.rect(thumbX, thumbY, thumbSize, thumbSize);
+      ctx.fill();
+      ctx.strokeStyle = '#e6e3dc';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.clip();
+      const s = Math.min((thumbSize - 8) / pImg.width, (thumbSize - 8) / pImg.height);
+      const w = pImg.width * s;
+      const h = pImg.height * s;
+      ctx.drawImage(pImg, thumbX + (thumbSize - w) / 2, thumbY + (thumbSize - h) / 2, w, h);
+      ctx.restore();
+    } else {
+      drawSpoolOrBottleFallback(ctx, thumbX, thumbY, thumbSize, r.colorHex, r.type);
     }
 
+    // Product Name + Brand + Color Swatch Dot
+    const textRight = thumbX - 18;
+    ctx.textAlign = 'right';
+    if (r.brand) {
+      ctx.fillStyle = '#8b8d94';
+      ctx.font = 'bold 17px "Segoe UI", Arial, sans-serif';
+      ctx.fillText(String(r.brand).toUpperCase(), textRight, y + 28);
+    }
+    ctx.fillStyle = '#1e1f24';
+    ctx.font = 'bold 23px "Cairo", "Segoe UI", Arial, sans-serif';
+    ctx.fillText(String(r.name).slice(0, 28), textRight, y + (r.brand ? 58 : 44));
+
+    if (r.color) {
+      // Color dot
+      ctx.beginPath();
+      ctx.arc(textRight - 8, y + 80, 7, 0, Math.PI * 2);
+      ctx.fillStyle = r.colorHex || '#7c858e';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = '#666870';
+      ctx.font = '19px "Cairo", "Segoe UI", Arial, sans-serif';
+      ctx.fillText(String(r.color).slice(0, 26), textRight - 22, y + 86);
+    }
+
+    // Qty, Unit Price, Total
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#25262b';
-    ctx.font = 'bold 23px "Segoe UI", Arial, sans-serif';
-    ctx.fillText(String(r.qty), innerX + 340, y + 44);
-    ctx.fillText(money(r.unitPrice), innerX + 220, y + 44);
+    ctx.fillStyle = '#1e1f24';
+    ctx.font = 'bold 24px "Segoe UI", Arial, sans-serif';
+    ctx.fillText(String(r.qty), innerX + 350, y + 58);
+    ctx.fillStyle = '#4a4c54';
+    ctx.font = '23px "Segoe UI", Arial, sans-serif';
+    ctx.fillText(money(r.unitPrice), innerX + 225, y + 58);
 
     ctx.textAlign = 'left';
-    ctx.font = 'bold 23px "Segoe UI", Arial, sans-serif';
-    ctx.fillText(money(r.lineTotal) + ' ج.م', innerX + 20, y + 44);
+    ctx.fillStyle = '#1e1f24';
+    ctx.font = 'bold 24px "Segoe UI", Arial, sans-serif';
+    ctx.fillText(money(r.lineTotal) + ' ج.م', innerX + 22, y + 58);
 
     y += rowH;
   });
 
-  // Totals Card
+  // Totals & Payment Breakdown Box
   y += 28;
-  ctx.fillStyle = '#f7f6f3';
+  const totH = 266;
+  ctx.fillStyle = 'rgba(247, 246, 243, 0.94)';
   ctx.beginPath();
-  ctx.roundRect ? ctx.roundRect(innerX, y, innerW, 252, 18) : ctx.rect(innerX, y, innerW, 252);
+  ctx.roundRect ? ctx.roundRect(innerX, y, innerW, totH, 20) : ctx.rect(innerX, y, innerW, totH);
   ctx.fill();
-  ctx.strokeStyle = '#ece9e2';
+  ctx.strokeStyle = '#e9e6de';
   ctx.lineWidth = 2;
   ctx.stroke();
 
   const drawTotalRow = (label, value, offsetY, color = '#25262b', big = false) => {
     ctx.textAlign = 'right';
     ctx.fillStyle = color;
-    ctx.font = (big ? 'bold 29px' : '23px') + ' "Cairo", "Segoe UI", Arial, sans-serif';
-    ctx.fillText(label, innerX + innerW - 24, y + offsetY);
+    ctx.font = (big ? 'bold 30px' : '23px') + ' "Cairo", "Segoe UI", Arial, sans-serif';
+    ctx.fillText(label, innerX + innerW - 26, y + offsetY);
     ctx.textAlign = 'left';
-    ctx.font = (big ? 'bold 31px' : 'bold 24px') + ' "Segoe UI", Arial, sans-serif';
-    ctx.fillText(value, innerX + 24, y + offsetY);
+    ctx.font = (big ? 'bold 32px' : 'bold 24px') + ' "Segoe UI", Arial, sans-serif';
+    ctx.fillText(value, innerX + 26, y + offsetY);
   };
 
   drawTotalRow('قيمة المنتجات', money(inv.subtotal) + ' ج.م', 44);
-  drawTotalRow('مصاريف الشحن والتوصيل', money(inv.shipping) + ' ج.م', 86);
+  drawTotalRow('مصاريف الشحن والتوصيل', money(inv.shipping) + ' ج.م', 88);
 
-  ctx.strokeStyle = '#df2635';
-  ctx.lineWidth = 3;
+  // Highlighted Grand Total Strip
+  ctx.fillStyle = 'rgba(223, 38, 53, 0.08)';
   ctx.beginPath();
-  ctx.moveTo(innerX + 24, y + 108);
-  ctx.lineTo(innerX + innerW - 24, y + 108);
+  ctx.roundRect ? ctx.roundRect(innerX + 16, y + 108, innerW - 32, 62, 12) : ctx.rect(innerX + 16, y + 108, innerW - 32, 62);
+  ctx.fill();
+  ctx.strokeStyle = '#df2635';
+  ctx.lineWidth = 2;
   ctx.stroke();
-
   drawTotalRow('الإجمالي النهائي', money(inv.grandTotal) + ' ج.م', 150, '#df2635', true);
-  drawTotalRow('المبلغ المدفوع', money(inv.paid) + ' ج.م', 196, '#1b7f46', false);
-  drawTotalRow('المتبقي على العميل', money(inv.remaining) + ' ج.م', 234, inv.remaining > 0 ? '#df2635' : '#1b7f46', false);
 
-  // Footer
+  drawTotalRow('المبلغ المدفوع', money(inv.paid) + ' ج.م', 206, '#157a40', false);
+  drawTotalRow('المتبقي على العميل', money(inv.remaining) + ' ج.م', 246, inv.remaining > 0 ? '#df2635' : '#157a40', false);
+
+  // Dark Branded Footer Bar
+  const footH = 74;
+  const footY = pad + cardH - footH;
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(pad, footY, cardW, footH, [0, 0, 30, 30]) : ctx.rect(pad, footY, cardW, footH);
+  ctx.clip();
+  ctx.fillStyle = '#25262b';
+  ctx.fillRect(pad, footY, cardW, footH);
+  ctx.restore();
+
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#777777';
-  ctx.font = '21px "Cairo", "Segoe UI", Arial, sans-serif';
-  ctx.fillText('شكراً لتعاملكم مع ENZA 3D Printing  •  خامات الطباعة ثلاثية الأبعاد', W / 2, pad + cardH - 36);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 21px "Cairo", "Segoe UI", Arial, sans-serif';
+  ctx.fillText('شكراً لتعاملكم مع ENZA 3D Printing  •  فاتورة معتمدة إلكترونياً', W / 2, footY + 34);
+  ctx.fillStyle = '#b9bcc6';
+  ctx.font = '18px "Segoe UI", Arial, sans-serif';
+  ctx.fillText('enza-trade-co.odoo.com  •  خامات الطباعة ثلاثية الأبعاد بأعلى جودة', W / 2, footY + 60);
 
   return canvas.toDataURL('image/png');
 }
@@ -2005,7 +2241,7 @@ function renderActivity() {
   '<section class="panel">' +
     '<div class="panel-title">إعدادات النظام والاتصال</div>' +
     '<button class="settings-row" style="width:100%;text-align:right" data-action="check-updates">' +
-      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.4.0') + ' • التحقق من GitHub Releases</small></span>' +
+      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.5.0') + ' • التحقق من GitHub Releases</small></span>' +
       icon('sync') +
     '</button>' +
     '<button class="settings-row" style="width:100%;text-align:right;color:var(--red)" data-action="reset-all-orders">' +
@@ -3931,7 +4167,14 @@ document.addEventListener('submit', async e => {
           variantId: item.variantId,
           qty: Number(item.qty || 1),
           unitPrice: Number(item.unitPrice || 0),
-          name: p ? (p.brand + ' ' + (p.color_name || p.color)) : 'بكرة فيلامينت'
+          productName: p ? p.name : 'بكرة فيلامينت',
+          brand: p ? (p.brand || '') : '',
+          colorName: p ? (p.color_name || p.color || '') : '',
+          colorHex: p ? (p.color_hex || p.hex || '#7c858e') : '#7c858e',
+          externalId: p ? (p.external_id || null) : null,
+          imageUrl: p ? (p.image_url || null) : null,
+          type: p ? (p.type || 'spool') : 'spool',
+          name: p ? ((p.brand ? p.brand + ' — ' : '') + p.name + (p.color_name || p.color ? ' (' + (p.color_name || p.color) + ')' : '')) : 'بكرة فيلامينت'
         };
       });
 

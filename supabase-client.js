@@ -620,9 +620,17 @@
             remaining_amount: Number(remainingAmount || 0),
             ...(waybillImageUrl ? { waybill_image_url: waybillImageUrl } : {}),
             lines: items.map(it => ({
+              variant_id: it.variantId || null,
               qty: Number(it.qty || 1),
               unit_price: Number(it.unitPrice || 0),
               line_total: Number(it.unitPrice || 0) * Number(it.qty || 1),
+              product_name: it.productName || it.name || 'بكرة فيلامينت',
+              brand: it.brand || '',
+              color_name: it.colorName || '',
+              color_hex: it.colorHex || '',
+              external_id: it.externalId || null,
+              image_url: it.imageUrl || null,
+              type: it.type || 'spool',
               label_snapshot: it.name || 'بكرة فيلامينت'
             }))
           };

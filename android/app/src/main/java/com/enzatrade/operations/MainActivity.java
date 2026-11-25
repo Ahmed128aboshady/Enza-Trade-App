@@ -10,8 +10,12 @@ import android.widget.Toast;
 import androidx.core.content.FileProvider;
 import com.getcapacitor.BridgeActivity;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
 public class MainActivity extends BridgeActivity {
     @Override
@@ -45,6 +49,36 @@ public class MainActivity extends BridgeActivity {
     }
 
     private class ShareBridge {
+        @JavascriptInterface
+        public String fetchImageDataUrl(String imageUrl) {
+            try {
+                if (imageUrl == null || !imageUrl.startsWith("http")) return "";
+                HttpURLConnection conn = (HttpURLConnection) new URL(imageUrl).openConnection();
+                conn.setConnectTimeout(6000);
+                conn.setReadTimeout(8000);
+                conn.setInstanceFollowRedirects(true);
+                conn.setRequestProperty("User-Agent", "Enza-Trade-Android");
+                if (conn.getResponseCode() != 200) return "";
+                String ct = conn.getContentType();
+                if (ct == null || !ct.startsWith("image/")) ct = "image/png";
+                int semi = ct.indexOf(';');
+                if (semi > 0) ct = ct.substring(0, semi).trim();
+                try (InputStream in = conn.getInputStream();
+                     ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+                    byte[] buf = new byte[8192];
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        baos.write(buf, 0, n);
+                        if (baos.size() > 2 * 1024 * 1024) return "";
+                    }
+                    String b64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
+                    return "data:" + ct + ";base64," + b64;
+                }
+            } catch (Exception e) {
+                return "";
+            }
+        }
+
         @JavascriptInterface
         public boolean shareImage(String base64DataUrl, String fileName, String title) {
             try {
