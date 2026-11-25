@@ -326,11 +326,15 @@ function orderCard(o, compact=false) {
         '</div>' : '') +
     '</button>' +
     (!compact ?
-      '<div style="display:flex;justify-content:flex-end;gap:8px;border-top:1px solid #f1efeb;margin-top:10px;padding-top:8px">' +
-        '<button type="button" class="secondary-btn" data-action="open-order-invoice" data-id="' + esc(String(o.id)) + '" style="width:auto;padding:5px 12px;font-size:11px;min-height:32px;border-radius:8px">' +
+      '<div style="display:flex;justify-content:flex-end;flex-wrap:wrap;gap:6px;border-top:1px solid #f1efeb;margin-top:10px;padding-top:8px">' +
+        (getOrderOps(o).waybill ?
+          '<button type="button" class="secondary-btn" data-action="view-proof-image" data-img="' + esc(getOrderOps(o).waybill) + '" data-title="بوليصة الشحن — ' + esc(ref) + '" style="width:auto;padding:5px 10px;font-size:11px;min-height:32px;border-radius:8px;color:var(--green);border-color:#c6ebd4;background:var(--green-bg)">' +
+            icon('truck') + ' البوليصة' +
+          '</button>' : '') +
+        '<button type="button" class="secondary-btn" data-action="open-order-invoice" data-id="' + esc(String(o.id)) + '" style="width:auto;padding:5px 10px;font-size:11px;min-height:32px;border-radius:8px">' +
           icon('receipt') + ' الفاتورة' +
         '</button>' +
-        '<button type="button" class="secondary-btn" data-action="delete-order" data-id="' + esc(String(o.id)) + '" style="width:auto;padding:5px 12px;font-size:11px;min-height:32px;border-radius:8px;color:var(--red);border-color:#fcd9dc;background:#fff7f7">' +
+        '<button type="button" class="secondary-btn" data-action="delete-order" data-id="' + esc(String(o.id)) + '" style="width:auto;padding:5px 10px;font-size:11px;min-height:32px;border-radius:8px;color:var(--red);border-color:#fcd9dc;background:#fff7f7">' +
           icon('trash') + ' حذف الطلب' +
         '</button>' +
       '</div>' : '') +
@@ -2325,7 +2329,7 @@ function renderActivity() {
   '<section class="panel">' +
     '<div class="panel-title">إعدادات النظام والاتصال</div>' +
     '<button class="settings-row" style="width:100%;text-align:right" data-action="check-updates">' +
-      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.6.3') + ' • التحقق من GitHub Releases</small></span>' +
+      '<span>فحص التحديثات<small>الإصدار الحالي: v' + esc((window.EnzaUpdater && typeof window.EnzaUpdater.getVersion === 'function') ? window.EnzaUpdater.getVersion() : '1.6.4') + ' • التحقق من GitHub Releases</small></span>' +
       icon('sync') +
     '</button>' +
     '<button class="settings-row" style="width:100%;text-align:right;color:var(--red)" data-action="reset-all-orders">' +
@@ -3671,14 +3675,49 @@ document.addEventListener('click', async e => {
       stopCameraScanner().then(() => startCameraScanner());
       break;
 
-    case 'view-proof-image':
-      openModal(b.dataset.title || 'معاينة المستند',
-        '<div style="text-align:center;padding:10px">' +
-          '<img src="' + esc(b.dataset.img) + '" style="max-width:100%;max-height:65vh;border-radius:14px;box-shadow:0 4px 18px rgba(0,0,0,.15)">' +
-          '<button class="primary-btn" style="margin-top:16px" data-action="close-modal">إغلاق المعاينة</button>' +
+    case 'view-proof-image': {
+      const imgSrc = b.dataset.img || '';
+      const imgTitle = b.dataset.title || 'معاينة صورة البوليصة';
+      state.activeProofImage = { img: imgSrc, title: imgTitle };
+      openModal(imgTitle,
+        '<div style="text-align:center;padding:6px">' +
+          '<img src="' + esc(imgSrc) + '" style="max-width:100%;max-height:60vh;border-radius:14px;box-shadow:0 6px 20px rgba(0,0,0,.16);background:#faf9f7">' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px">' +
+            '<button type="button" class="primary-btn" style="background:var(--green)" data-action="save-proof-image">' + icon('check') + ' حفظ في المعرض</button>' +
+            '<button type="button" class="secondary-btn" data-action="share-proof-image">' + icon('chat') + ' مشاركة (واتساب)</button>' +
+          '</div>' +
+          '<button type="button" class="secondary-btn" style="margin-top:8px" data-action="close-modal">إغلاق المعاينة</button>' +
         '</div>'
       );
       break;
+    }
+
+    case 'save-proof-image': {
+      const proof = state.activeProofImage;
+      if (!proof || !proof.img) { toast('لا توجد صورة للحفظ'); break; }
+      const fileName = 'ENZA-Waybill-' + Date.now();
+      if (window.EnzaShare && typeof window.EnzaShare.saveImageToGallery === 'function') {
+        window.EnzaShare.saveImageToGallery(proof.img, fileName);
+      } else {
+        const a = document.createElement('a');
+        a.href = proof.img;
+        a.download = fileName + '.jpg';
+        a.click();
+        toast('تم تنزيل صورة البوليصة');
+      }
+      break;
+    }
+
+    case 'share-proof-image': {
+      const proof = state.activeProofImage;
+      if (!proof || !proof.img) { toast('لا توجد صورة للمشاركة'); break; }
+      if (window.EnzaShare && typeof window.EnzaShare.shareImage === 'function') {
+        window.EnzaShare.shareImage(proof.img, 'ENZA-Waybill-' + Date.now() + '.png', proof.title || 'صورة بوليصة الشحن');
+      } else {
+        toast('المشاركة المباشرة متاحة داخل تطبيق الأندرويد');
+      }
+      break;
+    }
 
     case 'prompt-attach-waybill':
       openAttachWaybillModal(b.dataset.id || state.selectedOrder);

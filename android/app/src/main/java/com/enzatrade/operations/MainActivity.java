@@ -91,6 +91,51 @@ public class MainActivity extends BridgeActivity {
         }
 
         @JavascriptInterface
+        public boolean saveImageToGallery(String base64DataUrl, String fileName) {
+            try {
+                String clean = base64DataUrl;
+                String mime = "image/jpeg";
+                String ext = ".jpg";
+                if (clean.startsWith("data:image/png")) { mime = "image/png"; ext = ".png"; }
+                else if (clean.startsWith("data:image/webp")) { mime = "image/webp"; ext = ".webp"; }
+                int comma = clean.indexOf(',');
+                if (comma >= 0) clean = clean.substring(comma + 1);
+                byte[] bytes = Base64.decode(clean, Base64.DEFAULT);
+
+                String safeName = (fileName != null && !fileName.trim().isEmpty()) ? fileName.trim() : ("ENZA-Waybill-" + System.currentTimeMillis());
+                safeName = safeName.replaceAll("[^a-zA-Z0-9._-]", "_");
+                if (!safeName.toLowerCase().endsWith(".jpg") && !safeName.toLowerCase().endsWith(".jpeg") && !safeName.toLowerCase().endsWith(".png") && !safeName.toLowerCase().endsWith(".webp")) {
+                    safeName += ext;
+                }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ContentValues cv = new ContentValues();
+                    cv.put(MediaStore.Images.Media.DISPLAY_NAME, safeName);
+                    cv.put(MediaStore.Images.Media.MIME_TYPE, mime);
+                    cv.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Enza-Waybills");
+                    Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv);
+                    if (uri == null) throw new Exception("MediaStore insert failed");
+                    try (OutputStream out = getContentResolver().openOutputStream(uri)) {
+                        if (out == null) throw new Exception("Stream null");
+                        out.write(bytes);
+                    }
+                } else {
+                    File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "Enza-Waybills");
+                    if (!dir.exists()) dir.mkdirs();
+                    File outFile = new File(dir, safeName);
+                    try (FileOutputStream fos = new FileOutputStream(outFile)) {
+                        fos.write(bytes);
+                    }
+                }
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "تم حفظ الصورة في المعرض (Pictures/Enza-Waybills)", Toast.LENGTH_LONG).show());
+                return true;
+            } catch (Exception e) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "تعذر حفظ الصورة في المعرض", Toast.LENGTH_SHORT).show());
+                return false;
+            }
+        }
+
+        @JavascriptInterface
         public boolean sharePdf(String base64PngDataUrl, String fileName, String title) {
             try {
                 String clean = base64PngDataUrl;
